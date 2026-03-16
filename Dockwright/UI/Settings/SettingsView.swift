@@ -2,8 +2,21 @@ import SwiftUI
 
 /// Tab-based settings window.
 struct SettingsView: View {
+    @Environment(\.dismiss) private var dismiss
+
     var body: some View {
-        TabView {
+        VStack(spacing: 0) {
+            HStack {
+                Spacer()
+                Button("Done") {
+                    dismiss()
+                }
+                .keyboardShortcut(.defaultAction)
+                .padding(.top, 12)
+                .padding(.trailing, 16)
+            }
+
+            TabView {
             APIKeysView()
                 .tabItem {
                     Label("API Keys", systemImage: "key.fill")
@@ -24,7 +37,9 @@ struct SettingsView: View {
                     Label("About", systemImage: "info.circle")
                 }
         }
-        .frame(width: 520, height: 420)
+            .frame(width: 520, height: 400)
+        }
+        .frame(width: 520, height: 440)
     }
 
     private var aboutView: some View {

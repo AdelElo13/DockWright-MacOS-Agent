@@ -30,6 +30,10 @@ final class AppState {
     let cronStore = CronStore()
     private(set) var cronRunner: CronRunner!
     private let notificationChannel = NotificationChannel()
+    let telegramChannel = TelegramChannel()
+
+    // Model registry
+    let modelRegistry = ModelRegistry.shared
 
     // Memory
     let memoryStore = MemoryStore()
@@ -120,11 +124,13 @@ final class AppState {
     // API key convenience — checks AuthManager for OAuth tokens too
     var hasAPIKey: Bool {
         _ = authManager.keychainVersion  // trigger re-render on auth changes
+        let provider = LLMModels.provider(for: selectedModel)
+        if provider == .ollama { return true }
         return !authManager.anthropicApiKey.isEmpty ||
                !authManager.openaiApiKey.isEmpty ||
                KeychainHelper.read(key: "anthropic_api_key") != nil ||
                KeychainHelper.read(key: "openai_api_key") != nil ||
-               LLMModels.provider(for: selectedModel) == .ollama
+               KeychainHelper.read(key: provider.keychainKey) != nil
     }
 
     /// Get the API key for the currently selected model's provider.
@@ -142,6 +148,8 @@ final class AppState {
             return KeychainHelper.read(key: "openai_api_key")
         case .ollama:
             return ""  // Ollama needs no key
+        case .google, .xai, .mistral, .deepseek, .kimi:
+            return KeychainHelper.read(key: provider.keychainKey)
         }
     }
 
@@ -182,6 +190,13 @@ final class AppState {
         AuthManager.startProactiveTokenSync()
 
         loadConversations()
+
+        // Refresh model registry in background (fetches from provider APIs)
+        if !modelRegistry.isCacheFresh {
+            Task.detached {
+                await ModelRegistry.shared.refreshAll()
+            }
+        }
     }
 
     // MARK: - System Prompt

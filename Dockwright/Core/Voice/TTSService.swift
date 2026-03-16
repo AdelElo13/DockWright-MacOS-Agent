@@ -2,12 +2,65 @@ import Foundation
 import AVFoundation
 import os
 
-/// System text-to-speech using AVSpeechSynthesizer.
+/// TTS with selectable providers: macOS system or ElevenLabs.
 /// Supports streaming: buffers text and speaks on sentence boundaries (. ! ?).
 @MainActor
 @Observable
 final class TTSService: NSObject, AVSpeechSynthesizerDelegate {
     static let shared = TTSService()
+
+    // MARK: - Provider
+
+    enum TTSProvider: String, CaseIterable, Identifiable {
+        case system = "macOS TTS"
+        case elevenLabs = "ElevenLabs"
+        var id: String { rawValue }
+    }
+
+    var provider: TTSProvider = {
+        TTSProvider(rawValue: UserDefaults.standard.string(forKey: "tts.provider") ?? "macOS TTS") ?? .system
+    }() {
+        didSet { UserDefaults.standard.set(provider.rawValue, forKey: "tts.provider") }
+    }
+
+    // MARK: - ElevenLabs
+
+    var elevenLabsVoiceId: String = UserDefaults.standard.string(forKey: "tts.elevenLabsVoice") ?? "21m00Tcm4TlvDq8ikWAM" {
+        didSet { UserDefaults.standard.set(elevenLabsVoiceId, forKey: "tts.elevenLabsVoice") }
+    }
+
+    var elevenLabsVoices: [(id: String, label: String)] = []
+    var isLoadingVoices = false
+
+    func fetchElevenLabsVoices() {
+        guard let apiKey = KeychainHelper.read(key: "elevenlabs_api_key"), !apiKey.isEmpty else { return }
+        guard !isLoadingVoices else { return }
+        isLoadingVoices = true
+
+        Task {
+            defer { Task { @MainActor in self.isLoadingVoices = false } }
+            guard let url = URL(string: "https://api.elevenlabs.io/v1/voices") else { return }
+            var request = URLRequest(url: url)
+            request.setValue(apiKey, forHTTPHeaderField: "xi-api-key")
+            request.timeoutInterval = 10
+
+            guard let (data, response) = try? await URLSession.shared.data(for: request),
+                  let http = response as? HTTPURLResponse, http.statusCode == 200,
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let voices = json["voices"] as? [[String: Any]] else { return }
+
+            let parsed: [(id: String, label: String)] = voices.compactMap { v in
+                guard let id = v["voice_id"] as? String, let name = v["name"] as? String else { return nil }
+                return (id: id, label: name)
+            }.sorted { $0.label < $1.label }
+
+            await MainActor.run {
+                self.elevenLabsVoices = parsed
+                if !parsed.contains(where: { $0.id == self.elevenLabsVoiceId }),
+                   let first = parsed.first { self.elevenLabsVoiceId = first.id }
+            }
+        }
+    }
 
     // MARK: - State
     var isSpeaking = false
@@ -23,6 +76,8 @@ final class TTSService: NSObject, AVSpeechSynthesizerDelegate {
 
     // MARK: - Private
     private let synthesizer = AVSpeechSynthesizer()
+    private let audioEngine = AVAudioEngine()
+    private let playerNode = AVAudioPlayerNode()
     private var sentenceBuffer = ""
     private var pendingSentences: [String] = []
     private var isProcessingQueue = false
@@ -122,19 +177,102 @@ final class TTSService: NSObject, AVSpeechSynthesizerDelegate {
         isProcessingQueue = true
         let sentence = pendingSentences.removeFirst()
 
-        let utterance = AVSpeechUtterance(string: sentence)
+        switch provider {
+        case .elevenLabs:
+            speakWithElevenLabs(sentence)
+        case .system:
+            speakWithSystem(sentence)
+        }
+    }
+
+    private func speakWithSystem(_ text: String) {
+        let utterance = AVSpeechUtterance(string: text)
         utterance.rate = rate
         utterance.pitchMultiplier = pitch
         utterance.volume = volume
         utterance.preUtteranceDelay = 0.0
         utterance.postUtteranceDelay = 0.05
 
-        // Use a high-quality voice if available
         if let voice = AVSpeechSynthesisVoice(language: "en-US") {
             utterance.voice = voice
         }
 
         synthesizer.speak(utterance)
+    }
+
+    private func speakWithElevenLabs(_ text: String) {
+        guard let apiKey = KeychainHelper.read(key: "elevenlabs_api_key"), !apiKey.isEmpty else {
+            speakWithSystem(text)
+            return
+        }
+
+        let voiceId = elevenLabsVoiceId
+        Task {
+            do {
+                guard let encoded = voiceId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
+                      let url = URL(string: "https://api.elevenlabs.io/v1/text-to-speech/\(encoded)") else {
+                    await MainActor.run { self.speakWithSystem(text) }
+                    return
+                }
+                var request = URLRequest(url: url)
+                request.httpMethod = "POST"
+                request.setValue(apiKey, forHTTPHeaderField: "xi-api-key")
+                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                request.setValue("audio/mpeg", forHTTPHeaderField: "Accept")
+                request.timeoutInterval = 15
+
+                let body: [String: Any] = [
+                    "text": text,
+                    "model_id": "eleven_turbo_v2_5",
+                    "voice_settings": ["stability": 0.5, "similarity_boost": 0.75]
+                ]
+                request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+                let (data, response) = try await URLSession.shared.data(for: request)
+                guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+                    await MainActor.run { self.speakWithSystem(text) }
+                    return
+                }
+
+                let tempURL = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("dw_tts_\(UUID().uuidString).mp3")
+                try data.write(to: tempURL)
+                defer { try? FileManager.default.removeItem(at: tempURL) }
+
+                let audioFile = try AVAudioFile(forReading: tempURL)
+                guard let buffer = AVAudioPCMBuffer(
+                    pcmFormat: audioFile.processingFormat,
+                    frameCapacity: AVAudioFrameCount(audioFile.length)
+                ) else {
+                    await MainActor.run { self.speakWithSystem(text) }
+                    return
+                }
+                try audioFile.read(into: buffer)
+
+                await MainActor.run {
+                    self.playElevenLabsBuffer(buffer, format: audioFile.processingFormat)
+                }
+            } catch {
+                await MainActor.run { self.speakWithSystem(text) }
+            }
+        }
+    }
+
+    private func playElevenLabsBuffer(_ buffer: AVAudioPCMBuffer, format: AVAudioFormat) {
+        if !audioEngine.isRunning {
+            if !audioEngine.attachedNodes.contains(playerNode) {
+                audioEngine.attach(playerNode)
+            }
+            audioEngine.connect(playerNode, to: audioEngine.mainMixerNode, format: format)
+            try? audioEngine.start()
+        }
+
+        playerNode.scheduleBuffer(buffer) { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.speakNextSentence()
+            }
+        }
+        playerNode.play()
     }
 
     private func splitIntoSentences(_ text: String) -> [String] {

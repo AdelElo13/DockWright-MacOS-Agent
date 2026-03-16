@@ -1,46 +1,7 @@
 import Foundation
 import os
 
-/// LLM provider types supported by Dockwright.
-enum LLMProvider: String, CaseIterable, Sendable {
-    case anthropic = "Anthropic"
-    case openai = "OpenAI"
-    case ollama = "Ollama"
-}
-
-/// Model definitions with provider mapping.
-struct LLMModelInfo: Sendable {
-    let id: String
-    let displayName: String
-    let provider: LLMProvider
-}
-
-/// Available models across all providers.
-enum LLMModels {
-    static let allModels: [LLMModelInfo] = [
-        // Anthropic
-        LLMModelInfo(id: "claude-sonnet-4-20250514", displayName: "Claude Sonnet 4", provider: .anthropic),
-        LLMModelInfo(id: "claude-3-5-haiku-20241022", displayName: "Claude 3.5 Haiku", provider: .anthropic),
-        // OpenAI
-        LLMModelInfo(id: "gpt-4o", displayName: "GPT-4o", provider: .openai),
-        LLMModelInfo(id: "gpt-4o-mini", displayName: "GPT-4o Mini", provider: .openai),
-        // Ollama (placeholder — auto-detected at runtime)
-        LLMModelInfo(id: "llama3.1:latest", displayName: "Llama 3.1 (Ollama)", provider: .ollama),
-        LLMModelInfo(id: "mistral:latest", displayName: "Mistral (Ollama)", provider: .ollama),
-    ]
-
-    static func provider(for modelId: String) -> LLMProvider {
-        allModels.first { $0.id == modelId }?.provider ?? .anthropic
-    }
-
-    static func apiKeyName(for provider: LLMProvider) -> String {
-        switch provider {
-        case .anthropic: return "anthropic_api_key"
-        case .openai: return "openai_api_key"
-        case .ollama: return "" // No key needed
-        }
-    }
-}
+// LLMProvider, LLMModelInfo, and LLMModels are defined in LLMModels.swift
 
 /// Multi-provider streaming LLM client.
 /// Supports Anthropic, OpenAI, and Ollama (OpenAI-compatible).
@@ -95,6 +56,35 @@ final class LLMService: @unchecked Sendable {
                         messages: messages, tools: tools, model: model,
                         apiKey: "", systemPrompt: systemPrompt, onChunk: onChunk,
                         baseURL: "http://localhost:11434/v1/chat/completions"
+                    )
+                case .google:
+                    return try await self.performGeminiStream(
+                        messages: messages, tools: tools, model: model,
+                        apiKey: apiKey, systemPrompt: systemPrompt, onChunk: onChunk
+                    )
+                case .xai:
+                    return try await self.performOpenAIStream(
+                        messages: messages, tools: tools, model: model,
+                        apiKey: apiKey, systemPrompt: systemPrompt, onChunk: onChunk,
+                        baseURL: "https://api.x.ai/v1/chat/completions"
+                    )
+                case .mistral:
+                    return try await self.performOpenAIStream(
+                        messages: messages, tools: tools, model: model,
+                        apiKey: apiKey, systemPrompt: systemPrompt, onChunk: onChunk,
+                        baseURL: "https://api.mistral.ai/v1/chat/completions"
+                    )
+                case .deepseek:
+                    return try await self.performOpenAIStream(
+                        messages: messages, tools: tools, model: model,
+                        apiKey: apiKey, systemPrompt: systemPrompt, onChunk: onChunk,
+                        baseURL: "https://api.deepseek.com/chat/completions"
+                    )
+                case .kimi:
+                    return try await self.performOpenAIStream(
+                        messages: messages, tools: tools, model: model,
+                        apiKey: apiKey, systemPrompt: systemPrompt, onChunk: onChunk,
+                        baseURL: "https://api.moonshot.cn/v1/chat/completions"
                     )
                 }
             }
@@ -564,5 +554,154 @@ enum LLMError: LocalizedError {
         case .rateLimited, .timeout, .serverError: return true
         default: return false
         }
+    }
+}
+
+// MARK: - Google Gemini SSE Stream
+
+extension LLMService {
+    /// Stream chat completions from Google Gemini API.
+    /// Uses SSE streaming via `?alt=sse` query parameter.
+    func performGeminiStream(
+        messages: [LLMMessage],
+        tools: [[String: Any]]?,
+        model: String,
+        apiKey: String,
+        systemPrompt: String,
+        onChunk: @escaping @Sendable (StreamChunk) -> Void
+    ) async throws -> LLMResponse {
+        let urlStr = "https://generativelanguage.googleapis.com/v1beta/models/\(model):streamGenerateContent?alt=sse&key=\(apiKey)"
+        guard let url = URL(string: urlStr) else {
+            throw LLMError.apiError("Invalid Gemini API URL")
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "content-type")
+        request.timeoutInterval = 180
+
+        // Build Gemini request body
+        var body: [String: Any] = [:]
+
+        // System instruction
+        if !systemPrompt.isEmpty {
+            body["systemInstruction"] = [
+                "parts": [["text": systemPrompt]]
+            ]
+        }
+
+        // Build contents array
+        var contents: [[String: Any]] = []
+        for msg in messages {
+            if msg.role == "system" || msg.role == "tool" { continue }
+
+            let geminiRole: String
+            switch msg.role {
+            case "user":     geminiRole = "user"
+            case "assistant": geminiRole = "model"
+            default:         continue
+            }
+
+            var parts: [[String: Any]] = []
+            if let text = msg.content, !text.isEmpty {
+                parts.append(["text": text])
+            }
+            if let images = msg.images {
+                for img in images {
+                    parts.append([
+                        "inlineData": [
+                            "mimeType": img.mediaType,
+                            "data": img.data
+                        ]
+                    ])
+                }
+            }
+
+            if !parts.isEmpty {
+                contents.append(["role": geminiRole, "parts": parts])
+            }
+        }
+        body["contents"] = contents
+
+        // Generation config
+        body["generationConfig"] = [
+            "maxOutputTokens": 8192
+        ]
+
+        // Convert tools to Gemini format
+        if let tools, !tools.isEmpty {
+            let geminiFuncs = tools.map { tool -> [String: Any] in
+                var params = tool["input_schema"] as? [String: Any] ?? [:]
+                params.removeValue(forKey: "additionalProperties")
+                return [
+                    "name": tool["name"] as? String ?? "",
+                    "description": tool["description"] as? String ?? "",
+                    "parameters": params
+                ] as [String: Any]
+            }
+            body["tools"] = [["functionDeclarations": geminiFuncs]]
+        }
+
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (bytes, response) = try await session.bytes(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else { throw LLMError.invalidResponse }
+
+        if httpResponse.statusCode != 200 {
+            var errorBody = ""
+            for try await line in bytes.lines { errorBody += line; if errorBody.count > 2000 { break } }
+            if httpResponse.statusCode == 401 || httpResponse.statusCode == 403 { throw LLMError.unauthorized }
+            if httpResponse.statusCode == 429 { throw LLMError.rateLimited }
+            if httpResponse.statusCode >= 500 {
+                throw LLMError.apiError("Gemini server error (HTTP \(httpResponse.statusCode)).")
+            }
+            throw LLMError.apiError("Gemini HTTP \(httpResponse.statusCode): \(errorBody.prefix(500))")
+        }
+
+        var fullText = ""
+        var inputTokens = 0
+        var outputTokens = 0
+        var finishReason: String?
+
+        for try await line in bytes.lines {
+            guard line.hasPrefix("data: ") else { continue }
+            let jsonStr = String(line.dropFirst(6))
+            if jsonStr == "[DONE]" { break }
+
+            guard let data = jsonStr.data(using: .utf8),
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
+
+            if let candidates = json["candidates"] as? [[String: Any]],
+               let firstCandidate = candidates.first {
+                if let content = firstCandidate["content"] as? [String: Any],
+                   let parts = content["parts"] as? [[String: Any]] {
+                    for part in parts {
+                        if let text = part["text"] as? String {
+                            fullText += text
+                            onChunk(.textDelta(text))
+                        }
+                    }
+                }
+                if let fr = firstCandidate["finishReason"] as? String {
+                    finishReason = fr
+                }
+            }
+
+            if let usageMetadata = json["usageMetadata"] as? [String: Any] {
+                inputTokens = usageMetadata["promptTokenCount"] as? Int ?? inputTokens
+                outputTokens = usageMetadata["candidatesTokenCount"] as? Int ?? outputTokens
+            }
+        }
+
+        onChunk(.done(fullText.isEmpty ? "" : fullText))
+
+        return LLMResponse(
+            content: fullText.isEmpty ? nil : fullText,
+            toolCalls: nil,
+            finishReason: finishReason,
+            inputTokens: inputTokens,
+            outputTokens: outputTokens,
+            thinkingContent: nil
+        )
     }
 }
