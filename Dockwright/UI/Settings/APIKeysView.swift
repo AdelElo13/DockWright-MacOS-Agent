@@ -1,11 +1,13 @@
 import SwiftUI
 
-/// API key entry for each LLM provider.
+/// API key entry for each LLM provider with OAuth connect/disconnect.
 struct APIKeysView: View {
     @State private var anthropicKey = ""
     @State private var openaiKey = ""
     @State private var geminiKey = ""
+    @State private var claudeCode = ""
     @State private var saveStatus = ""
+    @State private var authManager = AuthManager()
 
     // Check which keys exist
     @State private var hasAnthropic = false
@@ -14,40 +16,117 @@ struct APIKeysView: View {
 
     var body: some View {
         Form {
+            // Claude / Anthropic Section
             Section {
                 HStack {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Anthropic (Claude)")
                             .font(DockwrightTheme.Typography.bodyMedium)
-                        Text("Required for chat. Get your key at console.anthropic.com")
-                            .font(DockwrightTheme.Typography.caption)
-                            .foregroundStyle(.secondary)
+                        if authManager.isClaudeOAuth {
+                            Text("Connected via OAuth")
+                                .font(DockwrightTheme.Typography.caption)
+                                .foregroundStyle(DockwrightTheme.success)
+                        } else if hasAnthropic {
+                            Text("API key configured")
+                                .font(DockwrightTheme.Typography.caption)
+                                .foregroundStyle(DockwrightTheme.success)
+                        } else {
+                            Text("Not connected")
+                                .font(DockwrightTheme.Typography.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                     Spacer()
-                    statusDot(hasAnthropic)
+                    statusDot(authManager.isClaudeSignedIn || hasAnthropic)
                 }
 
-                SecureField("sk-ant-...", text: $anthropicKey)
+                // OAuth buttons
+                HStack(spacing: DockwrightTheme.Spacing.sm) {
+                    if authManager.isClaudeSignedIn {
+                        Button("Disconnect Claude") {
+                            authManager.signOutClaude()
+                            refreshStatus()
+                        }
+                        .foregroundStyle(DockwrightTheme.error)
+                    } else {
+                        Button("Sign in with Claude") {
+                            authManager.signInWithClaude()
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(DockwrightTheme.primary)
+                    }
+                }
+
+                // Claude OAuth code entry
+                if authManager.oauthCodePrompt {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Paste the authorization code:")
+                            .font(DockwrightTheme.Typography.caption)
+                            .foregroundStyle(.secondary)
+                        HStack {
+                            TextField("Code...", text: $claudeCode)
+                                .textFieldStyle(.roundedBorder)
+                            Button("Submit") {
+                                Task {
+                                    await authManager.exchangeClaudeCode(claudeCode)
+                                    claudeCode = ""
+                                    refreshStatus()
+                                }
+                            }
+                            .disabled(claudeCode.isEmpty || authManager.isSigningIn)
+                        }
+                    }
+                }
+
+                // Manual key entry
+                SecureField("sk-ant-... (manual API key)", text: $anthropicKey)
                     .textFieldStyle(.roundedBorder)
             }
 
+            // OpenAI Section
             Section {
                 HStack {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("OpenAI (GPT)")
                             .font(DockwrightTheme.Typography.bodyMedium)
-                        Text("Optional. For GPT model support.")
-                            .font(DockwrightTheme.Typography.caption)
-                            .foregroundStyle(.secondary)
+                        if authManager.isOpenAIOAuth {
+                            Text("Connected via OAuth")
+                                .font(DockwrightTheme.Typography.caption)
+                                .foregroundStyle(DockwrightTheme.success)
+                        } else if hasOpenAI {
+                            Text("API key configured")
+                                .font(DockwrightTheme.Typography.caption)
+                                .foregroundStyle(DockwrightTheme.success)
+                        } else {
+                            Text("Optional. For GPT model support.")
+                                .font(DockwrightTheme.Typography.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                     Spacer()
-                    statusDot(hasOpenAI)
+                    statusDot(authManager.isOpenAISignedIn || hasOpenAI)
                 }
 
-                SecureField("sk-...", text: $openaiKey)
+                HStack(spacing: DockwrightTheme.Spacing.sm) {
+                    if authManager.isOpenAISignedIn {
+                        Button("Disconnect OpenAI") {
+                            authManager.signOutOpenAI()
+                            refreshStatus()
+                        }
+                        .foregroundStyle(DockwrightTheme.error)
+                    } else {
+                        Button("Sign in with OpenAI") {
+                            authManager.signInWithOpenAI()
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                }
+
+                SecureField("sk-... (manual API key)", text: $openaiKey)
                     .textFieldStyle(.roundedBorder)
             }
 
+            // Gemini Section
             Section {
                 HStack {
                     VStack(alignment: .leading, spacing: 4) {
@@ -65,6 +144,16 @@ struct APIKeysView: View {
                     .textFieldStyle(.roundedBorder)
             }
 
+            // Error display
+            if let error = authManager.signInError {
+                Section {
+                    Text(error)
+                        .font(DockwrightTheme.Typography.caption)
+                        .foregroundStyle(DockwrightTheme.error)
+                }
+            }
+
+            // Save button
             Section {
                 HStack {
                     Button("Save Keys") {

@@ -72,6 +72,11 @@ nonisolated final class WorldModel: @unchecked Sendable {
             parts.append("Screen content\(timeStr): \(s.screenContentSummary)")
         }
 
+        // Frontmost document
+        if !s.frontmostDocumentHint.isEmpty {
+            parts.append("Active document: \(s.frontmostDocumentHint)")
+        }
+
         // Browser tabs
         if !s.browserTabs.isEmpty {
             let activeTab: String
@@ -125,6 +130,72 @@ nonisolated final class WorldModel: @unchecked Sendable {
 
             // Time
             self.state.currentHour = Calendar.current.component(.hour, from: Date())
+
+            // Frontmost document path detection
+            self.detectFrontmostDocument()
+        }
+    }
+
+    /// Detect the document path of the frontmost app via Accessibility / AppleScript.
+    private func detectFrontmostDocument() {
+        let bundleID = state.frontmostAppBundleID
+        guard !bundleID.isEmpty else { return }
+
+        // Use AppleScript to get the frontmost document path for known apps
+        let script: String?
+        switch bundleID {
+        case "com.apple.dt.Xcode":
+            script = """
+            tell application "System Events"
+                tell process "Xcode"
+                    set winTitle to name of front window
+                end tell
+            end tell
+            return winTitle
+            """
+        case "com.apple.TextEdit":
+            script = """
+            tell application "TextEdit"
+                if (count of documents) > 0 then
+                    return path of front document
+                end if
+            end tell
+            return ""
+            """
+        case "com.sublimetext.3", "com.sublimetext.4":
+            script = """
+            tell application "System Events"
+                tell process "Sublime Text"
+                    set winTitle to name of front window
+                end tell
+            end tell
+            return winTitle
+            """
+        case "com.microsoft.VSCode":
+            script = """
+            tell application "System Events"
+                tell process "Code"
+                    set winTitle to name of front window
+                end tell
+            end tell
+            return winTitle
+            """
+        default:
+            script = nil
+        }
+
+        if let script {
+            // Run in background to avoid blocking
+            DispatchQueue.global(qos: .utility).async {
+                var error: NSDictionary?
+                guard let appleScript = NSAppleScript(source: script) else { return }
+                let result = appleScript.executeAndReturnError(&error)
+                if error == nil, let title = result.stringValue, !title.isEmpty {
+                    self.queue.async(flags: .barrier) {
+                        self.state.frontmostDocumentHint = String(title.prefix(200))
+                    }
+                }
+            }
         }
     }
 
@@ -313,4 +384,7 @@ private struct WorldState {
     // Browser
     var browserTabs: [BrowserTab] = []
     var activeBrowserTabIndex: Int = -1
+
+    // Frontmost document hint (for proactive context)
+    var frontmostDocumentHint: String = ""
 }

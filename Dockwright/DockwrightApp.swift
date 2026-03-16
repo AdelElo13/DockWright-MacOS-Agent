@@ -61,6 +61,11 @@ struct DockwrightApp: App {
             }
             .keyboardShortcut("v", modifiers: [.command, .shift])
 
+            Button(appState.agentMode ? "Disable Agent Mode" : "Enable Agent Mode") {
+                appState.agentMode.toggle()
+            }
+            .keyboardShortcut("a", modifiers: [.command, .shift])
+
             Divider()
 
             HStack {
@@ -118,6 +123,31 @@ struct DockwrightApp: App {
 
             ToolbarItem(placement: .automatic) {
                 HStack(spacing: DockwrightTheme.Spacing.sm) {
+                    // Agent mode toggle
+                    Button {
+                        appState.agentMode.toggle()
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "brain")
+                                .font(.system(size: 11, weight: .medium))
+                            Text("Agent")
+                                .font(DockwrightTheme.Typography.caption)
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(
+                            appState.agentMode
+                                ? DockwrightTheme.secondary.opacity(0.2)
+                                : Color.clear
+                        )
+                        .clipShape(Capsule())
+                        .foregroundStyle(
+                            appState.agentMode ? DockwrightTheme.secondary : .secondary
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .help("Toggle Agent Mode (multi-step autonomous execution)")
+
                     // Model selector
                     Picker("", selection: $appState.selectedModel) {
                         ForEach(LLMModels.allModels, id: \.id) { model in

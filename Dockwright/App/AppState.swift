@@ -34,6 +34,15 @@ final class AppState {
     // Memory
     let memoryStore = MemoryStore()
 
+    // Auth
+    let authManager = AuthManager()
+
+    // Heartbeat
+    private(set) var heartbeat: HeartbeatRunner!
+
+    // Skills
+    let skillLoader = SkillLoader()
+
     // Sensory
     let worldModel = WorldModel.shared
 
@@ -59,20 +68,81 @@ final class AppState {
     // Cancellation
     private var streamTask: Task<Void, Never>?
 
-    // API key convenience
+    // MARK: - Agent Mode
+
+    let agentExecutor = AgentExecutor()
+    var agentMode = false
+    var agentState: AgentExecutor.AgentState = .idle
+
+    // MARK: - Vision: pending images to include in next message
+
+    var pendingImages: [ImageContent] = []
+    var pendingFileContents: [(name: String, content: String)] = []
+
+    // MARK: - Slash Commands
+
+    var showSlashCommands = false
+    var slashFilter = ""
+
+    struct SlashCommand: Identifiable {
+        let id = UUID()
+        let command: String
+        let label: String
+        let icon: String
+    }
+
+    let slashCommands: [SlashCommand] = [
+        SlashCommand(command: "/clear", label: "Clear conversation", icon: "trash"),
+        SlashCommand(command: "/export", label: "Export conversation", icon: "square.and.arrow.up"),
+        SlashCommand(command: "/voice", label: "Toggle voice mode", icon: "mic"),
+        SlashCommand(command: "/model", label: "Switch model", icon: "cpu"),
+        SlashCommand(command: "/schedule", label: "Open scheduler", icon: "clock.arrow.circlepath"),
+        SlashCommand(command: "/agent", label: "Toggle agent mode", icon: "brain"),
+        SlashCommand(command: "/clipboard", label: "Read clipboard", icon: "doc.on.clipboard"),
+        SlashCommand(command: "/watch", label: "Watch a directory", icon: "eye"),
+        SlashCommand(command: "/system", label: "System info", icon: "desktopcomputer"),
+        SlashCommand(command: "/dark", label: "Toggle dark mode", icon: "moon"),
+    ]
+
+    var filteredSlashCommands: [SlashCommand] {
+        if slashFilter.isEmpty { return slashCommands }
+        let q = slashFilter.lowercased()
+        return slashCommands.filter {
+            $0.command.lowercased().contains(q) || $0.label.lowercased().contains(q)
+        }
+    }
+
+    // MARK: - Conversation Summarization
+
+    private var conversationSummary: String = ""
+    private var lastSummarizedCount = 0
+
+    // API key convenience — checks AuthManager for OAuth tokens too
     var hasAPIKey: Bool {
-        // Has at least one provider key or is using Ollama
-        KeychainHelper.read(key: "anthropic_api_key") != nil ||
-        KeychainHelper.read(key: "openai_api_key") != nil ||
-        LLMModels.provider(for: selectedModel) == .ollama
+        _ = authManager.keychainVersion  // trigger re-render on auth changes
+        return !authManager.anthropicApiKey.isEmpty ||
+               !authManager.openaiApiKey.isEmpty ||
+               KeychainHelper.read(key: "anthropic_api_key") != nil ||
+               KeychainHelper.read(key: "openai_api_key") != nil ||
+               LLMModels.provider(for: selectedModel) == .ollama
     }
 
     /// Get the API key for the currently selected model's provider.
+    /// Checks AuthManager first (OAuth tokens), then falls back to Keychain.
     var currentAPIKey: String? {
         let provider = LLMModels.provider(for: selectedModel)
-        let keyName = LLMModels.apiKeyName(for: provider)
-        if keyName.isEmpty { return "" } // Ollama needs no key
-        return KeychainHelper.read(key: keyName)
+        switch provider {
+        case .anthropic:
+            let key = authManager.anthropicApiKey
+            if !key.isEmpty { return key }
+            return KeychainHelper.read(key: "anthropic_api_key")
+        case .openai:
+            let key = authManager.openaiApiKey
+            if !key.isEmpty { return key }
+            return KeychainHelper.read(key: "openai_api_key")
+        case .ollama:
+            return ""  // Ollama needs no key
+        }
     }
 
     init() {
@@ -80,6 +150,10 @@ final class AppState {
         cronRunner = CronRunner(store: cronStore, channel: notificationChannel)
         tools.register(CronTool(store: cronStore))
         cronRunner.start()
+
+        // Set up heartbeat
+        heartbeat = HeartbeatRunner(channel: notificationChannel, cronStore: cronStore)
+        heartbeat.start()
 
         // Set up memory -- failure is non-fatal, app works without it
         do {
@@ -90,9 +164,22 @@ final class AppState {
             log.error("[Memory] Failed to initialize (non-fatal, memory features disabled): \(error.localizedDescription)")
         }
 
+        // Register all new tools
+        tools.register(VisionTool())
+        tools.register(ClipboardTool())
+        tools.register(SystemTool())
+        tools.register(FileWatcherTool())
+        tools.register(ExportTool())
+        tools.register(RemindersTool())
+        tools.register(NotesTool())
+
         // Start sensory ambient loop (screen capture + OCR every 15s)
         // This is non-fatal -- if screen capture permission is denied, it degrades gracefully
         worldModel.startAmbientLoop()
+
+        // Import Claude Code OAuth token if available
+        authManager.importClaudeCodeTokenIfNeeded()
+        AuthManager.startProactiveTokenSync()
 
         loadConversations()
     }
@@ -101,7 +188,7 @@ final class AppState {
 
     private var systemPrompt: String {
         let context = worldModel.contextString()
-        return """
+        var prompt = """
         You are Dockwright, a powerful macOS AI assistant. You have access to tools that let you:
         - Run shell commands on the user's Mac
         - Read and write files
@@ -109,11 +196,39 @@ final class AppState {
         - Set reminders and schedule recurring tasks
         - See what's on the user's screen
         - Know which apps and browser tabs are open
+        - Analyze images (vision tool) — users can drop/paste images into chat
+        - Read and write the system clipboard
+        - Control macOS: open apps, toggle dark mode, set volume, get system info
+        - Watch directories for file changes
+        - Export conversations as Markdown or PDF
+        - Save and recall persistent memories about the user
 
         Current context:
         \(context)
 
         Active scheduled jobs: \(cronRunner.activeJobsSummary())
+        """
+
+        if agentMode {
+            prompt += """
+
+            AGENT MODE IS ON. When the user gives you a goal:
+            1. Break it down into numbered steps (max 20)
+            2. Format each step as: "N. [tool:toolname] description | {\"arg\": \"value\"}"
+            3. If no tool is needed, just describe the reasoning step
+            4. Execute systematically, reporting progress
+            """
+        }
+
+        if !conversationSummary.isEmpty {
+            prompt += """
+
+            Previous conversation summary (older messages):
+            \(conversationSummary)
+            """
+        }
+
+        prompt += """
 
         Guidelines:
         - Be concise and direct
@@ -121,13 +236,23 @@ final class AppState {
         - For reminders/scheduling, use the scheduler tool with create_reminder action
         - When the user mentions something on screen, reference your screen awareness
         - When showing code, use markdown code blocks with language tags
+        - When the user says "this file" or "this page", use screen context to determine what they mean
+        - If clipboard has code when the user pastes, offer to explain or fix it
         - Speak Dutch if the user speaks Dutch
         """
+
+        // Inject skill descriptions
+        let skillsFragment = skillLoader.systemPromptFragment()
+        if !skillsFragment.isEmpty {
+            prompt += skillsFragment
+        }
+
+        return prompt
     }
 
     // MARK: - Send Message
 
-    func sendMessage(_ text: String) async {
+    func sendMessage(_ text: String, images: [ImageContent]? = nil) async {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
 
         guard let apiKey = currentAPIKey else {
@@ -136,8 +261,20 @@ final class AppState {
             return
         }
 
+        // Build the user message content, including any pending file contents
+        var fullText = text
+        for file in pendingFileContents {
+            fullText += "\n\n--- File: \(file.name) ---\n\(file.content)"
+        }
+        pendingFileContents.removeAll()
+
+        // Combine explicit images with pending images
+        var allImages = images ?? []
+        allImages.append(contentsOf: pendingImages)
+        pendingImages.removeAll()
+
         // Append user message
-        let userMessage = ChatMessage(role: .user, content: text)
+        let userMessage = ChatMessage(role: .user, content: fullText)
         currentConversation.messages.append(userMessage)
         currentConversation.touch()
 
@@ -146,22 +283,28 @@ final class AppState {
             currentConversation.title = String(text.prefix(50))
         }
 
+        // Update export bridge
+        ExportDataBridge.shared.currentConversation = currentConversation
+
         isProcessing = true
 
         // Create streaming assistant message
-        var assistantMessage = ChatMessage(role: .assistant, content: "", isStreaming: true)
+        let assistantMessage = ChatMessage(role: .assistant, content: "", isStreaming: true)
         currentConversation.messages.append(assistantMessage)
         let assistantIndex = currentConversation.messages.count - 1
 
         streamTask = Task {
-            await runLLMLoop(apiKey: apiKey, assistantIndex: assistantIndex)
+            await runLLMLoop(apiKey: apiKey, assistantIndex: assistantIndex, images: allImages.isEmpty ? nil : allImages)
         }
     }
 
-    private func runLLMLoop(apiKey: String, assistantIndex: Int) async {
-        var llmMessages = buildLLMMessages()
+    private func runLLMLoop(apiKey: String, assistantIndex: Int, images: [ImageContent]? = nil) async {
+        var llmMessages = buildLLMMessages(images: images)
         let maxRetries = 3
         var retryCount = 0
+
+        // Auto-summarize if conversation is long
+        await autoSummarizeIfNeeded()
 
         // Tool use loop — keeps calling LLM until no more tool calls
         while true {
@@ -207,6 +350,11 @@ final class AppState {
                     for tc in toolCalls {
                         let args = toolExecutor.parseArguments(tc.function.arguments)
                         currentActivity = .executing(tc.function.name)
+
+                        // Set export bridge before export tool runs
+                        if tc.function.name == "export" {
+                            ExportDataBridge.shared.currentConversation = currentConversation
+                        }
 
                         let result = await toolExecutor.executeTool(name: tc.function.name, arguments: args)
 
@@ -273,6 +421,7 @@ final class AppState {
 
         // Save conversation
         currentConversation.touch()
+        ExportDataBridge.shared.currentConversation = currentConversation
         conversationStore.save(currentConversation)
         loadConversations()
     }
@@ -306,16 +455,30 @@ final class AppState {
 
     // MARK: - Build LLM Messages
 
-    private func buildLLMMessages() -> [LLMMessage] {
+    private func buildLLMMessages(images: [ImageContent]? = nil) -> [LLMMessage] {
         var messages: [LLMMessage] = []
 
-        // Limit to last 20 messages to prevent token overflow
-        let recentMessages = currentConversation.messages.suffix(20)
+        let allMessages = currentConversation.messages
+        let windowSize = 20
 
-        for msg in recentMessages {
+        // If conversation is long, use sliding window with summary
+        let recentMessages: ArraySlice<ChatMessage>
+        if allMessages.count > windowSize && !conversationSummary.isEmpty {
+            // Summary is injected via system prompt, use last windowSize messages
+            recentMessages = allMessages.suffix(windowSize)
+        } else {
+            recentMessages = allMessages.suffix(windowSize)
+        }
+
+        for (idx, msg) in recentMessages.enumerated() {
             switch msg.role {
             case .user:
-                messages.append(.user(msg.content))
+                if idx == recentMessages.count - 1, let images, !images.isEmpty {
+                    // Last user message — attach images
+                    messages.append(.user(msg.content, images: images))
+                } else {
+                    messages.append(.user(msg.content))
+                }
             case .assistant:
                 if !msg.content.isEmpty {
                     messages.append(.assistant(msg.content))
@@ -326,6 +489,86 @@ final class AppState {
         }
 
         return messages
+    }
+
+    // MARK: - Auto-Summarize
+
+    private func autoSummarizeIfNeeded() async {
+        let messageCount = currentConversation.messages.count
+        guard messageCount > 30, messageCount - lastSummarizedCount >= 10 else { return }
+        guard let apiKey = currentAPIKey else { return }
+
+        // Summarize older messages (beyond the last 20)
+        let olderMessages = currentConversation.messages.prefix(messageCount - 20)
+        guard !olderMessages.isEmpty else { return }
+
+        var transcript = ""
+        for msg in olderMessages {
+            let role = msg.role == .user ? "User" : "Assistant"
+            if msg.role == .user || msg.role == .assistant {
+                transcript += "\(role): \(String(msg.content.prefix(300)))\n"
+            }
+        }
+
+        if transcript.count < 100 { return } // Not enough to summarize
+
+        let summaryMessages: [LLMMessage] = [
+            .user("Summarize this conversation in 3-5 bullet points, preserving key facts, decisions, and user preferences:\n\n\(String(transcript.prefix(8000)))")
+        ]
+
+        do {
+            let response = try await llm.streamChat(
+                messages: summaryMessages,
+                model: selectedModel,
+                apiKey: apiKey,
+                systemPrompt: "You are a conversation summarizer. Be concise and factual."
+            ) { _ in }
+
+            if let content = response.content, !content.isEmpty {
+                conversationSummary = content
+                lastSummarizedCount = messageCount
+                log.info("[Summary] Auto-summarized \(olderMessages.count) older messages")
+            }
+        } catch {
+            log.warning("[Summary] Auto-summarize failed (non-fatal): \(error.localizedDescription)")
+        }
+    }
+
+    // MARK: - Slash Command Execution
+
+    func executeSlashCommand(_ command: String) async {
+        switch command {
+        case "/clear":
+            newConversation()
+        case "/export":
+            ExportDataBridge.shared.currentConversation = currentConversation
+            await sendMessage("Export this conversation as markdown to my Desktop")
+        case "/voice":
+            await toggleVoiceMode()
+        case "/model":
+            // Cycle through models
+            let models = LLMModels.allModels
+            if let currentIdx = models.firstIndex(where: { $0.id == selectedModel }) {
+                let nextIdx = (currentIdx + 1) % models.count
+                selectedModel = models[nextIdx].id
+                appendError("Switched to \(models[nextIdx].displayName)")
+            }
+        case "/schedule":
+            showScheduler.toggle()
+        case "/agent":
+            agentMode.toggle()
+            appendError("Agent mode \(agentMode ? "enabled" : "disabled")")
+        case "/clipboard":
+            await sendMessage("Read my clipboard and tell me what's on it")
+        case "/watch":
+            await sendMessage("Watch my Downloads folder for new files")
+        case "/system":
+            await sendMessage("Show me my system info")
+        case "/dark":
+            await sendMessage("Toggle dark mode")
+        default:
+            appendError("Unknown command: \(command)")
+        }
     }
 
     // MARK: - Stop
@@ -355,6 +598,8 @@ final class AppState {
         }
         currentConversation = Conversation()
         streamingText = ""
+        conversationSummary = ""
+        lastSummarizedCount = 0
         loadConversations()
     }
 
@@ -367,6 +612,8 @@ final class AppState {
         if let conv = conversationStore.load(id: id) {
             currentConversation = conv
             streamingText = ""
+            conversationSummary = ""
+            lastSummarizedCount = 0
         }
     }
 
@@ -448,7 +695,7 @@ final class AppState {
 
     // MARK: - Helpers
 
-    private func appendError(_ message: String) {
+    func appendError(_ message: String) {
         let errorMessage = ChatMessage(role: .error, content: message)
         currentConversation.messages.append(errorMessage)
     }

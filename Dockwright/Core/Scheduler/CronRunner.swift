@@ -33,6 +33,9 @@ final class CronRunner: @unchecked Sendable {
             await channel.requestPermission()
         }
 
+        // Catch-up: check for jobs that were missed while app was closed
+        catchUpMissedJobs()
+
         let timer = DispatchSource.makeTimerSource(queue: queue)
         timer.schedule(deadline: .now(), repeating: checkInterval)
         timer.setEventHandler { [weak self] in
@@ -41,6 +44,40 @@ final class CronRunner: @unchecked Sendable {
         timer.resume()
         self.timer = timer
         logger.info("CronRunner started (interval: \(Int(self.checkInterval))s)")
+    }
+
+    /// On startup, check for missed jobs (lastRun + interval < now).
+    /// One-shot jobs are executed immediately. Recurring jobs are logged.
+    private func catchUpMissedJobs() {
+        let now = Date()
+        let jobs = store.listAll()
+
+        for var job in jobs where job.enabled {
+            if job.isOneShot {
+                // One-shot: fire immediately if fire date has passed
+                guard let fireDate = job.nextRun, now >= fireDate else { continue }
+                logger.info("Catch-up: executing missed one-shot job: \(job.name) (was due: \(fireDate))")
+                executeJob(job)
+                _ = store.remove(job.id)
+            } else {
+                // Recurring: log if missed, update nextRun
+                guard let lastRun = job.lastRun else { continue }
+                do {
+                    let expr = try CronExpression(job.schedule)
+                    if let expectedNext = expr.nextOccurrence(after: lastRun),
+                       now > expectedNext {
+                        let missedMinutes = Int(now.timeIntervalSince(expectedNext) / 60)
+                        logger.warning("Catch-up: recurring job '\(job.name)' missed by ~\(missedMinutes) min (expected: \(expectedNext))")
+
+                        // Update nextRun to the next future occurrence
+                        job.nextRun = expr.nextOccurrence(after: now)
+                        store.update(job)
+                    }
+                } catch {
+                    logger.error("Catch-up: invalid cron expression for \(job.name): \(error.localizedDescription)")
+                }
+            }
+        }
     }
 
     func stop() {

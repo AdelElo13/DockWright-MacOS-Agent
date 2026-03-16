@@ -90,7 +90,25 @@ final class CronStore: @unchecked Sendable {
         do {
             let encoder = JSONEncoder.dockwright
             let data = try encoder.encode(Array(jobs.values))
-            try data.write(to: fileURL, options: .atomic)
+
+            // Create .bak backup before every write
+            let fm = FileManager.default
+            if fm.fileExists(atPath: fileURL.path) {
+                let backupURL = fileURL.deletingPathExtension().appendingPathExtension("bak.json")
+                try? fm.removeItem(at: backupURL)
+                try? fm.copyItem(at: fileURL, to: backupURL)
+            }
+
+            // Atomic write: write to temp file, then rename
+            let tempURL = fileURL.deletingLastPathComponent()
+                .appendingPathComponent(".cron_jobs_\(UUID().uuidString.prefix(8)).tmp")
+            try data.write(to: tempURL, options: [])
+
+            // Set permissions to 0600 (owner read/write only)
+            try fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: tempURL.path)
+
+            // Atomic rename
+            _ = try fm.replaceItemAt(fileURL, withItemAt: tempURL)
         } catch {
             logger.error("Failed to save cron_jobs.json: \(error.localizedDescription)")
         }

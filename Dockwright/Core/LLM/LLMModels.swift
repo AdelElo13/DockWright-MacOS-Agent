@@ -14,8 +14,8 @@ struct LLMMessage: Codable, Sendable {
         LLMMessage(role: "system", content: text)
     }
 
-    static func user(_ text: String) -> LLMMessage {
-        LLMMessage(role: "user", content: text)
+    static func user(_ text: String, images: [ImageContent]? = nil) -> LLMMessage {
+        LLMMessage(role: "user", content: text, images: images)
     }
 
     static func assistant(_ text: String, toolCalls: [ToolCall]? = nil) -> LLMMessage {
