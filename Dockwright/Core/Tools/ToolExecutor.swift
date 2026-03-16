@@ -2,7 +2,7 @@ import Foundation
 import os
 
 /// Executes tools by name, with per-tool timeouts.
-final class ToolExecutor: @unchecked Sendable {
+nonisolated final class ToolExecutor: @unchecked Sendable {
     private let registry: ToolRegistry
 
     nonisolated init(registry: ToolRegistry = .shared) {

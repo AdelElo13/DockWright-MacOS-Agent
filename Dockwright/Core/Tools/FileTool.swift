@@ -5,7 +5,7 @@ struct FileTool: Tool, Sendable {
     let name = "file"
     let description = "Read, write, list, search, or check existence of files on the user's Mac."
 
-    let parametersSchema: [String: Any] = [
+    nonisolated(unsafe) let parametersSchema: [String: Any] = [
         "action": [
             "type": "string",
             "description": "Action to perform: read, write, list, search, exists",

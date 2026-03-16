@@ -1,7 +1,7 @@
 import os
 import Foundation
 
-let log = Logger(subsystem: "com.Aatje.Dockwright", category: "general")
+nonisolated let log = Logger(subsystem: "com.Aatje.Dockwright", category: "general")
 
 nonisolated enum AppLog {
     static let llm = Logger(subsystem: "com.Aatje.Dockwright", category: "llm")

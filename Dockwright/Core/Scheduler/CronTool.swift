@@ -12,7 +12,7 @@ struct CronTool: Tool, @unchecked Sendable {
         - delete_job: Delete a job by ID. Params: id (string).
         """
 
-    let parametersSchema: [String: Any] = [
+    nonisolated(unsafe) let parametersSchema: [String: Any] = [
         "action": [
             "type": "string",
             "description": "The action to perform: create_reminder, create_cron, list_jobs, or delete_job",
@@ -72,22 +72,17 @@ struct CronTool: Tool, @unchecked Sendable {
             return ToolResult("Missing required parameter: action", isError: true)
         }
 
-        // Catch all exceptions to never crash from tool execution
-        do {
-            switch action {
-            case "create_reminder":
-                return createReminder(arguments)
-            case "create_cron":
-                return createCron(arguments)
-            case "list_jobs":
-                return listJobs()
-            case "delete_job":
-                return deleteJob(arguments)
-            default:
-                return ToolResult("Unknown action: \(action). Use: create_reminder, create_cron, list_jobs, or delete_job.", isError: true)
-            }
-        } catch {
-            return ToolResult("Scheduler error: \(error.localizedDescription)", isError: true)
+        switch action {
+        case "create_reminder":
+            return createReminder(arguments)
+        case "create_cron":
+            return createCron(arguments)
+        case "list_jobs":
+            return listJobs()
+        case "delete_job":
+            return deleteJob(arguments)
+        default:
+            return ToolResult("Unknown action: \(action). Use: create_reminder, create_cron, list_jobs, or delete_job.", isError: true)
         }
     }
 

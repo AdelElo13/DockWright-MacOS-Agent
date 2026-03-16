@@ -3,7 +3,7 @@ import os
 
 /// SQLite + FTS5 memory store for facts and episodes.
 /// Provides full-text search for the LLM to remember and recall information.
-final class MemoryStore: @unchecked Sendable {
+nonisolated final class MemoryStore: @unchecked Sendable {
     private let db = SQLiteManager()
     private let dbPath: String
 
@@ -240,14 +240,14 @@ final class MemoryStore: @unchecked Sendable {
 
 // MARK: - Result Types
 
-struct FactResult: Sendable {
+nonisolated struct FactResult: Sendable {
     let id: String
     let content: String
     let category: String
     let createdAt: String
 }
 
-struct EpisodeResult: Sendable {
+nonisolated struct EpisodeResult: Sendable {
     let id: String
     let summary: String
     let timestamp: String

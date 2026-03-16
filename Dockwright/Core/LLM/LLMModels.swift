@@ -2,7 +2,7 @@ import Foundation
 
 // MARK: - LLM Message (API-level)
 
-struct LLMMessage: Codable, Sendable {
+nonisolated struct LLMMessage: Codable, Sendable {
     let role: String  // "system", "user", "assistant", "tool"
     var content: String?
     var toolCalls: [ToolCall]?
@@ -29,20 +29,20 @@ struct LLMMessage: Codable, Sendable {
 
 // MARK: - Tool Call
 
-struct ToolCall: Codable, Sendable {
+nonisolated struct ToolCall: Codable, Sendable {
     let id: String
     let type: String  // always "function"
     let function: ToolCallFunction
 }
 
-struct ToolCallFunction: Codable, Sendable {
+nonisolated struct ToolCallFunction: Codable, Sendable {
     let name: String
     let arguments: String  // JSON string
 }
 
 // MARK: - Image Content
 
-struct ImageContent: Codable, Sendable {
+nonisolated struct ImageContent: Codable, Sendable {
     let type: String       // "base64"
     let mediaType: String  // "image/png"
     let data: String
@@ -50,7 +50,7 @@ struct ImageContent: Codable, Sendable {
 
 // MARK: - LLM Response
 
-struct LLMResponse: Sendable {
+nonisolated struct LLMResponse: Sendable {
     let content: String?
     let toolCalls: [ToolCall]?
     let finishReason: String?
@@ -61,7 +61,7 @@ struct LLMResponse: Sendable {
 
 // MARK: - Stream Events
 
-enum StreamChunk: Sendable {
+nonisolated enum StreamChunk: Sendable {
     case textDelta(String)
     case toolStarted(String)
     case toolCompleted(name: String, preview: String, output: String)
@@ -71,7 +71,7 @@ enum StreamChunk: Sendable {
     case done(String)
 }
 
-enum StreamActivity: Sendable, Equatable {
+nonisolated enum StreamActivity: Sendable, Equatable {
     case thinking
     case searching(String)
     case reading(String)
@@ -81,7 +81,7 @@ enum StreamActivity: Sendable, Equatable {
 
 // MARK: - Chat Message (UI Display)
 
-struct ChatMessage: Identifiable, Codable, Sendable {
+nonisolated struct ChatMessage: Identifiable, Codable, Sendable {
     let id: UUID
     let role: MessageRole
     var content: String
@@ -101,13 +101,13 @@ struct ChatMessage: Identifiable, Codable, Sendable {
     }
 }
 
-enum MessageRole: String, Codable, Sendable {
+nonisolated enum MessageRole: String, Codable, Sendable {
     case user, assistant, system, error
 }
 
 // MARK: - Tool Output
 
-struct ToolOutput: Identifiable, Codable, Sendable {
+nonisolated struct ToolOutput: Identifiable, Codable, Sendable {
     let id: UUID
     let toolName: String
     let output: String
@@ -125,7 +125,7 @@ struct ToolOutput: Identifiable, Codable, Sendable {
 
 // MARK: - Conversation
 
-struct Conversation: Identifiable, Codable, Sendable {
+nonisolated struct Conversation: Identifiable, Codable, Sendable {
     let id: String
     var title: String
     var messages: [ChatMessage]
@@ -147,7 +147,7 @@ struct Conversation: Identifiable, Codable, Sendable {
 
 // MARK: - Conversation Summary
 
-struct ConversationSummary: Identifiable, Codable, Sendable {
+nonisolated struct ConversationSummary: Identifiable, Codable, Sendable {
     let id: String
     var title: String
     var preview: String

@@ -6,7 +6,7 @@ struct ShellTool: Tool, Sendable {
     let name = "shell"
     let description = "Run a shell command on the user's Mac. Returns stdout, stderr, and exit code."
 
-    let parametersSchema: [String: Any] = [
+    nonisolated(unsafe) let parametersSchema: [String: Any] = [
         "command": [
             "type": "string",
             "description": "The shell command to execute"

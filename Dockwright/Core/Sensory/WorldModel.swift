@@ -368,7 +368,7 @@ nonisolated final class WorldModel: @unchecked Sendable {
 
 // MARK: - World State
 
-private struct WorldState {
+private nonisolated struct WorldState {
     var frontmostApp: String = ""
     var frontmostAppBundleID: String = ""
     var openApplications: [String] = []

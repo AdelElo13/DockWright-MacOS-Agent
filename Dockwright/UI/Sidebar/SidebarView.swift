@@ -155,7 +155,7 @@ struct SidebarView: View {
 
     private func conversationRow(_ conv: ConversationSummary) -> some View {
         let isActive = conv.id == appState.currentConversation.id
-        let isHovered = hoveredConversationId == conv.id
+        _ = hoveredConversationId == conv.id
 
         return Button {
             appState.loadConversation(conv.id)

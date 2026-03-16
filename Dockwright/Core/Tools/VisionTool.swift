@@ -7,7 +7,7 @@ struct VisionTool: Tool, Sendable {
     let name = "vision"
     let description = "Analyze images using AI vision. Can read images from file paths or the clipboard. Returns base64-encoded image data for the LLM to analyze."
 
-    let parametersSchema: [String: Any] = [
+    nonisolated(unsafe) let parametersSchema: [String: Any] = [
         "action": [
             "type": "string",
             "description": "Action: 'analyze_file' (read image from path), 'analyze_clipboard' (read image from clipboard)",

@@ -125,7 +125,7 @@ nonisolated final class FileWatcherManager: @unchecked Sendable {
             queue: DispatchQueue.global(qos: .utility)
         )
 
-        var entry = WatchEntry(
+        let entry = WatchEntry(
             id: watchId,
             path: path,
             source: source,

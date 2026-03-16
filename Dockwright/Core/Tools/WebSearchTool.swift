@@ -5,7 +5,7 @@ struct WebSearchTool: Tool, Sendable {
     let name = "web_search"
     let description = "Search the web using DuckDuckGo. Returns top results with titles, URLs, and snippets."
 
-    let parametersSchema: [String: Any] = [
+    nonisolated(unsafe) let parametersSchema: [String: Any] = [
         "query": [
             "type": "string",
             "description": "The search query"

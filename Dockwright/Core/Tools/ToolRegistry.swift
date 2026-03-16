@@ -11,11 +11,11 @@ nonisolated protocol Tool: Sendable {
 
 // MARK: - Tool Result
 
-struct ToolResult: Sendable {
+nonisolated struct ToolResult: Sendable {
     let output: String
     let isError: Bool
 
-    init(_ output: String, isError: Bool = false) {
+    nonisolated init(_ output: String, isError: Bool = false) {
         self.output = output
         self.isError = isError
     }
@@ -23,8 +23,8 @@ struct ToolResult: Sendable {
 
 // MARK: - Tool Registry
 
-final class ToolRegistry: @unchecked Sendable {
-    static let shared = ToolRegistry()
+nonisolated final class ToolRegistry: @unchecked Sendable {
+    nonisolated static let shared = ToolRegistry()
 
     private let lock = NSLock()
     private var tools: [String: any Tool] = [:]

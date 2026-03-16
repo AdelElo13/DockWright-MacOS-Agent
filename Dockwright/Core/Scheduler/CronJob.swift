@@ -3,7 +3,7 @@ import Foundation
 // MARK: - Cron Action
 
 /// What a cron job does when triggered.
-enum CronAction: Codable, Sendable, Equatable {
+nonisolated enum CronAction: Codable, Sendable, Equatable {
     case notification(title: String, body: String)
     case tool(name: String, arguments: [String: String])
     case message(text: String)
@@ -24,7 +24,7 @@ enum CronAction: Codable, Sendable, Equatable {
 // MARK: - Cron Job
 
 /// A single scheduled job — either recurring (cron expression) or one-shot (reminder).
-struct CronJob: Codable, Identifiable, Sendable, Equatable {
+nonisolated struct CronJob: Codable, Identifiable, Sendable, Equatable {
     let id: String
     var name: String
     var schedule: String          // 5-field cron expression OR ISO 8601 datetime for one-shots

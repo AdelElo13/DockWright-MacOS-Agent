@@ -15,7 +15,7 @@ struct SystemTool: Tool, Sendable {
         - get_volume: Get current system volume
         """
 
-    let parametersSchema: [String: Any] = [
+    nonisolated(unsafe) let parametersSchema: [String: Any] = [
         "action": [
             "type": "string",
             "description": "Action to perform",
@@ -192,8 +192,10 @@ struct SystemTool: Tool, Sendable {
         info.append("Uptime: \(hours)h \(minutes)m")
 
         // Dark mode
-        let appearance = NSApp?.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua])
-        info.append("Dark mode: \(appearance == .darkAqua ? "on" : "off")")
+        let isDark = await MainActor.run {
+            NSApp?.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        }
+        info.append("Dark mode: \(isDark == true ? "on" : "off")")
 
         return ToolResult(info.joined(separator: "\n"))
     }

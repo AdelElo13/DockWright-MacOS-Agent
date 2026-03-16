@@ -167,7 +167,7 @@ nonisolated final class BrowserTabWatcher: @unchecked Sendable {
 
 // MARK: - Data
 
-struct BrowserTab: Sendable {
+nonisolated struct BrowserTab: Sendable {
     let title: String
     let url: String
 }

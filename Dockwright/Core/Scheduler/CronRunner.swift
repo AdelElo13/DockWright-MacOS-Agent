@@ -102,12 +102,7 @@ final class CronRunner: @unchecked Sendable {
     // MARK: - Check Loop
 
     private func checkJobs() {
-        // Wrap entire check in do/catch to never crash the timer loop
-        do {
-            _checkJobsUnsafe()
-        } catch {
-            logger.error("CronRunner check failed: \(error.localizedDescription)")
-        }
+        _checkJobsUnsafe()
     }
 
     private func _checkJobsUnsafe() {

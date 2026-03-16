@@ -2,7 +2,7 @@ import Foundation
 import os
 
 /// Thread-safe JSON persistence for cron jobs at ~/.dockwright/cron_jobs.json
-final class CronStore: @unchecked Sendable {
+nonisolated final class CronStore: @unchecked Sendable {
     private let logger = Logger(subsystem: "com.Aatje.Dockwright", category: "CronStore")
     private let queue = DispatchQueue(label: "com.Aatje.Dockwright.CronStore", qos: .utility)
     private var jobs: [String: CronJob] = [:]
@@ -117,7 +117,7 @@ final class CronStore: @unchecked Sendable {
 
 // MARK: - JSON Encoder/Decoder helpers
 
-private extension JSONEncoder {
+private nonisolated extension JSONEncoder {
     static let dockwright: JSONEncoder = {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
@@ -126,7 +126,7 @@ private extension JSONEncoder {
     }()
 }
 
-private extension JSONDecoder {
+private nonisolated extension JSONDecoder {
     static let dockwright: JSONDecoder = {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601

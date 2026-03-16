@@ -10,7 +10,7 @@ struct ExportTool: Tool, Sendable {
         - pdf: Export as a .pdf file. Params: path (optional, defaults to ~/Desktop/dockwright_export.pdf)
         """
 
-    let parametersSchema: [String: Any] = [
+    nonisolated(unsafe) let parametersSchema: [String: Any] = [
         "action": [
             "type": "string",
             "description": "Export format: markdown or pdf",
@@ -251,7 +251,7 @@ struct ExportTool: Tool, Sendable {
 // MARK: - Export Data Bridge
 
 /// Bridge to pass conversation data to the export tool without making it depend on AppState.
-final class ExportDataBridge: @unchecked Sendable {
+nonisolated final class ExportDataBridge: @unchecked Sendable {
     static let shared = ExportDataBridge()
     private let lock = NSLock()
     private var _conversation: Conversation?

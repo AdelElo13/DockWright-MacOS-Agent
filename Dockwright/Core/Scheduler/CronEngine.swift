@@ -247,7 +247,7 @@ nonisolated enum CronEngine {
 
 // MARK: - Cron Error
 
-enum CronError: Error, LocalizedError, Sendable {
+nonisolated enum CronError: Error, LocalizedError, Sendable {
     case invalidFieldCount(Int)
     case invalidStep(String)
     case invalidRange(String)

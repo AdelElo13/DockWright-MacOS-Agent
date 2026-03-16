@@ -13,7 +13,7 @@ struct ClipboardTool: Tool, Sendable {
         - read_files: Read file paths from clipboard (if files were copied in Finder)
         """
 
-    let parametersSchema: [String: Any] = [
+    nonisolated(unsafe) let parametersSchema: [String: Any] = [
         "action": [
             "type": "string",
             "description": "Action: read, write, detect, read_files",

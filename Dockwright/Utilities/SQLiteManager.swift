@@ -3,7 +3,7 @@ import SQLite3
 
 /// Thread-safe SQLite wrapper using the C API.
 /// All operations are serialized through a DispatchQueue.
-final class SQLiteManager: @unchecked Sendable {
+nonisolated final class SQLiteManager: @unchecked Sendable {
     private var db: OpaquePointer?
     private let queue = DispatchQueue(label: "com.dockwright.sqlite")
 
@@ -118,7 +118,7 @@ final class SQLiteManager: @unchecked Sendable {
     }
 }
 
-enum SQLiteError: LocalizedError {
+nonisolated enum SQLiteError: LocalizedError {
     case notOpen
     case openFailed(String)
     case prepareFailed(String)

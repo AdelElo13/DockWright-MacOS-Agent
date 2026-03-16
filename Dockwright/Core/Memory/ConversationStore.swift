@@ -3,7 +3,7 @@ import os
 
 /// Persists conversations to ~/.dockwright/conversations/ as JSON files.
 /// Thread-safe via serial DispatchQueue. Includes in-memory LRU cache.
-final class ConversationStore: @unchecked Sendable {
+nonisolated final class ConversationStore: @unchecked Sendable {
     private let storageDir: URL
     private let indexFile: URL
     private let ioQueue = DispatchQueue(label: "com.dockwright.conversations.io")
