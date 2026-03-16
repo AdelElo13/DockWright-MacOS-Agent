@@ -5,6 +5,10 @@ import UniformTypeIdentifiers
 struct ChatView: View {
     @Bindable var appState: AppState
     @State private var isDragOver = false
+    @State private var isDictating = false
+    @State private var dictationPollTask: Task<Void, Never>?
+    @State private var promptText = ""
+    private var voice: VoiceService { VoiceService.shared }
 
     // Text file extensions we can read
     private static let readableExtensions: Set<String> = [
@@ -21,11 +25,6 @@ struct ChatView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Agent mode banner
-            if appState.agentMode {
-                agentBanner
-            }
-
             if appState.currentConversation.messages.isEmpty {
                 emptyState
             } else {
@@ -42,17 +41,21 @@ struct ChatView: View {
 
             MessageInput(
                 isProcessing: appState.isProcessing,
-                voiceState: appState.voiceState,
-                voiceMode: appState.voiceMode,
-                onSend: { text in
+                voiceState: isDictating ? .listening : appState.voiceState,
+                voiceMode: isDictating || appState.voiceMode,
+                onSend: { msg in
+                    promptText = ""
                     Task {
-                        await appState.sendMessage(text)
+                        await appState.sendMessage(msg)
                     }
                 },
                 onStop: {
                     appState.stopProcessing()
                 },
                 onToggleVoice: {
+                    toggleDictation()
+                },
+                onToggleVoiceConversation: {
                     Task {
                         await appState.toggleVoiceMode()
                     }
@@ -70,7 +73,8 @@ struct ChatView: View {
                 },
                 showSlashCommands: $appState.showSlashCommands,
                 slashFilter: $appState.slashFilter,
-                slashCommands: appState.filteredSlashCommands
+                slashCommands: appState.filteredSlashCommands,
+                text: $promptText
             )
             .padding(.horizontal, DockwrightTheme.Spacing.lg)
             .padding(.bottom, DockwrightTheme.Spacing.md)
@@ -86,40 +90,12 @@ struct ChatView: View {
         }
         .animation(.easeInOut(duration: 0.2), value: appState.isProcessing)
         .animation(.easeInOut(duration: 0.2), value: isDragOver)
-    }
-
-    // MARK: - Agent Mode Banner
-
-    private var agentBanner: some View {
-        HStack(spacing: DockwrightTheme.Spacing.sm) {
-            Image(systemName: "brain")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(DockwrightTheme.secondary)
-            Text("Agent Mode")
-                .font(DockwrightTheme.Typography.captionMedium)
-                .foregroundStyle(DockwrightTheme.secondary)
-
-            if case .executing(let step, let total, let desc) = appState.agentState {
-                Text("Step \(step)/\(total): \(desc)")
-                    .font(DockwrightTheme.Typography.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+        .onChange(of: appState.voiceLiveText) { _, newValue in
+            // Sync voice conversation live text to the input field
+            if appState.voiceMode {
+                promptText = newValue
             }
-
-            Spacer()
-
-            Button {
-                appState.agentMode = false
-            } label: {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.system(size: 14))
-                    .foregroundStyle(.secondary)
-            }
-            .buttonStyle(.plain)
         }
-        .padding(.horizontal, DockwrightTheme.Spacing.lg)
-        .padding(.vertical, DockwrightTheme.Spacing.xs)
-        .background(DockwrightTheme.secondary.opacity(0.08))
     }
 
     // MARK: - Drop Overlay
@@ -275,6 +251,47 @@ struct ChatView: View {
             )
         }
         .buttonStyle(.plain)
+    }
+
+    // MARK: - Dictation (matches Jarvis pattern)
+
+    private func toggleDictation() {
+        if isDictating {
+            // Stop dictation — keep whatever text was transcribed
+            voice.onFinalTranscription = nil
+            voice.stopListening()
+            isDictating = false
+            appState.voiceState = .idle
+            dictationPollTask?.cancel()
+            dictationPollTask = nil
+            return
+        }
+        // Start dictation
+        voice.requestAuthorization()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            guard voice.voiceEnabled else { return }
+            voice.onFinalTranscription = { text in
+                Task { @MainActor in
+                    isDictating = false
+                    appState.voiceState = .idle
+                    dictationPollTask?.cancel()
+                    dictationPollTask = nil
+                }
+            }
+            voice.startListening()
+            isDictating = true
+            appState.voiceState = .listening
+            // Poll recognizedText every 100ms for live updates
+            dictationPollTask = Task { @MainActor in
+                while isDictating && !Task.isCancelled {
+                    let live = voice.recognizedText
+                    if !live.isEmpty {
+                        promptText = live
+                    }
+                    try? await Task.sleep(nanoseconds: 100_000_000)
+                }
+            }
+        }
     }
 
     // MARK: - Image & File Handling

@@ -1,11 +1,9 @@
 import SwiftUI
-import AVFoundation
-import EventKit
 
 /// Privacy, permissions, and security settings.
+/// Auto-requests undetermined permissions on appear and monitors for changes in real-time.
 struct PrivacySettingsView: View {
-    @State private var hasMicAccess = false
-    @State private var hasCalendarAccess = false
+    private var pm = PermissionsManager.shared
     @State private var requireApproval = UserDefaults.standard.object(forKey: "requireApprovalForRisky") as? Bool ?? true
     @State private var saveConversations = UserDefaults.standard.object(forKey: "saveConversations") as? Bool ?? true
     @State private var retentionDays = UserDefaults.standard.object(forKey: "conversationRetentionDays") as? Int ?? 90
@@ -15,17 +13,22 @@ struct PrivacySettingsView: View {
 
     private let retentionOptions = [7, 14, 30, 60, 90, 180, 365]
 
+    private let permissionRows: [(type: PermissionType, name: String, icon: String, description: String)] = [
+        (.microphone, "Microphone", "mic.fill", "Voice input & dictation"),
+        (.speechRecognition, "Speech Recognition", "waveform", "Voice-to-text transcription"),
+        (.calendar, "Calendar", "calendar", "Read & create events"),
+        (.reminders, "Reminders", "checklist", "Read & create reminders"),
+        (.accessibility, "Accessibility", "hand.point.up.left.fill", "UI automation & browser reading"),
+        (.notifications, "Notifications", "bell.fill", "Background alerts"),
+        (.fullDiskAccess, "Full Disk Access", "externaldrive.fill", "File system access"),
+    ]
+
     var body: some View {
         Form {
             Section("System Permissions") {
-                permissionRow("Microphone", granted: hasMicAccess, description: "Required for voice input")
-                permissionRow("Calendar", granted: hasCalendarAccess, description: "Required for calendar tool")
-                permissionRow("Accessibility", granted: nil, description: "Required for browser reading")
-
-                Button("Open System Settings") {
-                    NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy")!)
+                ForEach(permissionRows, id: \.type) { row in
+                    permissionRowView(row.type, name: row.name, icon: row.icon, description: row.description)
                 }
-                .font(.caption)
             }
 
             Section("Execution Safety") {
@@ -90,32 +93,60 @@ struct PrivacySettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .onAppear { checkPermissions() }
+        .onAppear {
+            pm.startMonitoring()
+            // Auto-request all undetermined permissions — triggers native dialogs
+            pm.requestAllUndetermined()
+        }
+        .onDisappear {
+            pm.stopMonitoring()
+        }
     }
 
-    private func permissionRow(_ name: String, granted: Bool?, description: String) -> some View {
-        HStack {
+    private func permissionRowView(_ type: PermissionType, name: String, icon: String, description: String) -> some View {
+        let state = pm.statuses[type] ?? .notDetermined
+
+        return HStack {
+            Image(systemName: icon)
+                .foregroundStyle(stateColor(state))
+                .frame(width: 20)
+
             VStack(alignment: .leading, spacing: 2) {
                 Text(name)
+                    .foregroundStyle(.primary)
                 Text(description)
                     .font(.caption)
                     .foregroundStyle(.tertiary)
             }
+
             Spacer()
-            if let granted {
-                Image(systemName: granted ? "checkmark.circle.fill" : "xmark.circle.fill")
-                    .foregroundStyle(granted ? .green : .red)
-            } else {
-                Image(systemName: "questionmark.circle")
-                    .foregroundStyle(.orange)
+
+            switch state {
+            case .granted:
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+            case .denied:
+                Button("Open Settings") {
+                    Task { await pm.request(type) }
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            case .notDetermined:
+                Button("Grant") {
+                    Task { await pm.request(type) }
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
             }
         }
     }
 
-    private func checkPermissions() {
-        hasMicAccess = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
-        let ekStatus = EKEventStore.authorizationStatus(for: .event)
-        hasCalendarAccess = ekStatus == .fullAccess
+    private func stateColor(_ state: PermissionState) -> Color {
+        switch state {
+        case .granted: return .green
+        case .denied: return .red
+        case .notDetermined: return .orange
+        }
     }
 
     private func clearAllConversations() {

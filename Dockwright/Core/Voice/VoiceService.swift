@@ -73,7 +73,8 @@ private func _makeRecognitionHandler(
             if let transcription = transcription {
                 s.recognizedText = s.accumulatedText + transcription
                 s.sttErrorRetries = 0
-                s.onTranscription?(s.recognizedText)
+                // NOTE: Do NOT call onTranscription here — it's only called from
+                // finalizeRecording() after silence detection (matches Jarvis pattern).
 
                 if isFinal {
                     let elapsed = Date().timeIntervalSince(s.recordingStartTime)
@@ -186,7 +187,7 @@ final class VoiceService: NSObject {
         set { UserDefaults.standard.set(newValue, forKey: "voiceSilenceThreshold") }
     }
     var silenceDuration: TimeInterval {
-        get { UserDefaults.standard.object(forKey: "voiceSilenceDuration") as? TimeInterval ?? 1.5 }
+        get { UserDefaults.standard.object(forKey: "voiceSilenceDuration") as? TimeInterval ?? 0.8 }
         set { UserDefaults.standard.set(newValue, forKey: "voiceSilenceDuration") }
     }
 
@@ -205,7 +206,7 @@ final class VoiceService: NSObject {
     private var sttRestartTimer: Timer?
     private var finalizeWorkItem: DispatchWorkItem?
     private var isFinalizingRecording = false
-    private let transcriptionFinalizeGrace: TimeInterval = 1.5
+    private let transcriptionFinalizeGrace: TimeInterval = 0.4
 
     private override init() {
         super.init()
@@ -301,8 +302,12 @@ final class VoiceService: NSObject {
             return
         }
 
+        // Clean up any previous session — ALWAYS remove tap to prevent crash
         recognitionTask?.cancel()
         recognitionTask = nil
+        recognitionRequest = nil
+        audioEngine.inputNode.removeTap(onBus: 0)
+        if audioEngine.isRunning { audioEngine.stop() }
 
         recognizedText = ""
         accumulatedText = ""
@@ -310,6 +315,7 @@ final class VoiceService: NSObject {
         speechDetected = false
         sttErrorRetries = 0
         isStopping = false
+        isFinalizingRecording = false
         lastSpeechTime = .distantPast
         lastLevelUpdate = .distantPast
         recordingStartTime = Date()
@@ -364,7 +370,7 @@ final class VoiceService: NSObject {
         sttRestartTimer?.invalidate()
         sttRestartTimer = nil
         audioEngine.inputNode.removeTap(onBus: 0)
-        audioEngine.stop()
+        if audioEngine.isRunning { audioEngine.stop() }
         recognitionRequest?.endAudio()
         recognitionRequest = nil
         recognitionTask?.cancel()
@@ -376,7 +382,9 @@ final class VoiceService: NSObject {
         accumulatedText = ""
         onTranscription = nil
         onLevel = nil
-        onFinalTranscription = nil
+        // NOTE: onFinalTranscription is NOT cleared here — the caller manages it.
+        // Clearing it here would break the voice conversation loop where
+        // finalizeRecording's grace period callback needs to fire.
         isStopping = false
     }
 
@@ -416,7 +424,7 @@ final class VoiceService: NSObject {
 
     private func startSilenceTimer() {
         silenceTimer?.invalidate()
-        silenceTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+        silenceTimer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] _ in
             DispatchQueue.main.async { [weak self] in
                 MainActor.assumeIsolated {
                     self?.checkSilence()
@@ -455,7 +463,7 @@ final class VoiceService: NSObject {
         finalizeWorkItem?.cancel()
         finalizeWorkItem = nil
 
-        let callback = onFinalTranscription ?? onTranscription
+        let callback = onTranscription ?? onFinalTranscription
         silenceTimer?.invalidate()
         silenceTimer = nil
         sttRestartTimer?.invalidate()

@@ -18,6 +18,7 @@ final class AppState {
     var selectedModel = "claude-opus-4-6"
     var showSidebar = true
     var showSettings = false
+    var showSkillsAutomations = false
 
     // Services (nonisolated Sendable types)
     let llm = LLMService()
@@ -63,6 +64,8 @@ final class AppState {
     // Voice UI state
     var voiceMode = false
     var voiceState: VoiceState = .idle
+    var voiceLiveText = ""
+    private var voicePollTask: Task<Void, Never>?
 
     enum VoiceState: Equatable {
         case idle
@@ -769,26 +772,67 @@ final class AppState {
     func startListening() {
         guard voiceMode else { return }
         voiceState = .listening
+        voiceLiveText = ""
 
-        voiceService.onFinalTranscription = { [weak self] text in
+        // Use onTranscription — only fires from finalizeRecording() after silence + grace
+        // (matches Jarvis exactly — onTranscription is NOT called on partial results)
+        voiceService.onTranscription = { [weak self] text in
             guard let self else { return }
+
+            // Clear callback immediately to prevent double-fires
+            self.voiceService.onTranscription = nil
+            self.voicePollTask?.cancel()
+            self.voicePollTask = nil
+
+            guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                // Empty transcription — re-listen after brief pause
+                self.voiceLiveText = ""
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                    guard let self, self.voiceMode else { return }
+                    self.startListening()
+                }
+                return
+            }
+
+            // Show final text in field, then send
+            self.voiceLiveText = text
             self.voiceState = .transcribing
-            if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+
+            // Short delay for UI feedback, then send
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+                guard let self, self.voiceMode else { return }
+                self.voiceLiveText = ""
                 Task { [weak self] in
                     guard let self else { return }
                     await self.sendMessage(text)
                 }
-            } else {
-                self.voiceState = .idle
             }
         }
 
         voiceService.startListening()
+
+        // Poll recognizedText every 100ms for live preview (like dictation)
+        voicePollTask?.cancel()
+        voicePollTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                guard let self, self.voiceMode, self.voiceState == .listening else { break }
+                let live = self.voiceService.recognizedText
+                if !live.isEmpty {
+                    self.voiceLiveText = live
+                }
+                try? await Task.sleep(nanoseconds: 100_000_000)
+            }
+        }
     }
 
     func stopVoice() {
         voiceMode = false
         voiceState = .idle
+        voiceLiveText = ""
+        voicePollTask?.cancel()
+        voicePollTask = nil
+        voiceService.onTranscription = nil
+        voiceService.onFinalTranscription = nil
         voiceService.stopListening()
         ttsService.stopSpeaking()
         voiceCoordinator.release(.mainChat)
@@ -798,10 +842,15 @@ final class AppState {
     func speakResponse(_ text: String) {
         guard voiceMode else { return }
         voiceState = .speaking
+        voiceLiveText = ""
 
         ttsService.onSpeakingComplete = { [weak self] in
             guard let self, self.voiceMode else { return }
-            self.startListening()
+            // Cooldown before re-listening (avoids TTS residual audio triggering mic)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+                guard let self, self.voiceMode else { return }
+                self.startListening()
+            }
         }
 
         ttsService.speak(text: text)

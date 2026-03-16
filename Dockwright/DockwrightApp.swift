@@ -21,7 +21,7 @@ struct DockwrightApp: App {
             .frame(minWidth: 700, minHeight: 500)
             .preferredColorScheme(.dark)
         }
-        .windowStyle(.hiddenTitleBar)
+        .windowStyle(.titleBar)
         .defaultSize(width: 1000, height: 700)
 
         Settings {
@@ -93,83 +93,114 @@ struct DockwrightApp: App {
 
     // MARK: - Main View
 
-    private var mainView: some View {
-        HSplitView {
-            if appState.showSidebar {
-                SidebarView(appState: appState, showSettings: $appState.showSettings)
-                    .frame(width: DockwrightTheme.Layout.sidebarWidth)
-            }
+    /// Dismiss all overlay panels (settings, skills, scheduler).
+    private func dismissAllOverlays() {
+        withAnimation(.easeOut(duration: 0.2)) {
+            appState.showSettings = false
+            appState.showSkillsAutomations = false
+            appState.showScheduler = false
+        }
+    }
 
-            if appState.showScheduler {
-                SchedulerView(store: appState.cronStore, onClose: { appState.showScheduler = false })
-                    .frame(minWidth: 400)
-            } else {
+    /// Whether any overlay panel is visible.
+    private var hasOverlay: Bool {
+        appState.showSettings || appState.showSkillsAutomations || appState.showScheduler
+    }
+
+    private var mainView: some View {
+        ZStack {
+            // Base content
+            HSplitView {
+                if appState.showSidebar {
+                    SidebarView(appState: appState, showSettings: $appState.showSettings)
+                        .frame(width: DockwrightTheme.Layout.sidebarWidth)
+                }
+
                 ChatView(appState: appState)
                     .frame(minWidth: 400)
             }
-        }
-        .toolbar {
-            ToolbarItem(placement: .navigation) {
-                Button {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        appState.showSidebar.toggle()
-                    }
-                } label: {
-                    Image(systemName: "sidebar.left")
-                        .foregroundStyle(.secondary)
-                }
-                .help("Toggle sidebar")
-            }
-
-            ToolbarItem(placement: .automatic) {
-                HStack(spacing: DockwrightTheme.Spacing.sm) {
-                    // Agent mode toggle
+            .toolbar {
+                ToolbarItem(placement: .navigation) {
                     Button {
-                        appState.agentMode.toggle()
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            appState.showSidebar.toggle()
+                        }
                     } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: "brain")
-                                .font(.system(size: 11, weight: .medium))
-                            Text("Agent")
-                                .font(DockwrightTheme.Typography.caption)
-                        }
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(
-                            appState.agentMode
-                                ? DockwrightTheme.secondary.opacity(0.2)
-                                : Color.clear
-                        )
-                        .clipShape(Capsule())
-                        .foregroundStyle(
-                            appState.agentMode ? DockwrightTheme.secondary : .secondary
-                        )
+                        Image(systemName: "sidebar.left")
+                            .foregroundStyle(.secondary)
                     }
-                    .buttonStyle(.plain)
-                    .help("Toggle Agent Mode (multi-step autonomous execution)")
+                    .accessibilityLabel("Toggle sidebar")
+                }
 
-                    // Model selector
-                    Picker("", selection: $appState.selectedModel) {
-                        ForEach(LLMModels.allModels, id: \.id) { model in
-                            Text(model.displayName)
-                                .tag(model.id)
+                ToolbarItem(placement: .primaryAction) {
+                    HStack(spacing: 8) {
+                        Button {
+                            appState.agentMode.toggle()
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "brain")
+                                    .font(.system(size: 12, weight: .medium))
+                                Text("Agent")
+                                    .font(.system(size: 12, weight: .medium))
+                            }
+                            .fixedSize()
+                            .foregroundStyle(
+                                appState.agentMode ? DockwrightTheme.secondary : .secondary
+                            )
                         }
-                    }
-                    .pickerStyle(.menu)
-                    .frame(width: 150)
+                        .buttonStyle(.plain)
 
-                    Text(appState.tokenCounter.formattedCost())
-                        .font(DockwrightTheme.Typography.captionMono)
-                        .foregroundStyle(.quaternary)
+                        Picker("", selection: $appState.selectedModel) {
+                            ForEach(LLMModels.allModels, id: \.id) { model in
+                                Text(model.displayName)
+                                    .tag(model.id)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .fixedSize()
+
+                        Text(appState.tokenCounter.formattedCost())
+                            .font(.system(size: 11, weight: .medium, design: .monospaced))
+                            .foregroundStyle(.tertiary)
+                            .fixedSize()
+                    }
+                    .padding(.trailing, 4)
+                }
+            }
+            .onAppear {
+                appState.loadConversations()
+            }
+
+            // Overlay panels — click the dimmed background to dismiss
+            if hasOverlay {
+                Color.black.opacity(0.35)
+                    .ignoresSafeArea()
+                    .onTapGesture { dismissAllOverlays() }
+                    .transition(.opacity)
+
+                if appState.showSettings {
+                    SettingsView(onClose: { dismissAllOverlays() })
+                        .transition(.scale(scale: 0.95).combined(with: .opacity))
+                }
+
+                if appState.showSkillsAutomations {
+                    SkillsAutomationsView(appState: appState)
+                        .frame(minWidth: 560, minHeight: 520)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .shadow(color: .black.opacity(0.5), radius: 20)
+                        .transition(.scale(scale: 0.95).combined(with: .opacity))
+                }
+
+                if appState.showScheduler {
+                    SchedulerView(store: appState.cronStore, onClose: { dismissAllOverlays() })
+                        .frame(minWidth: 500, minHeight: 400)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .shadow(color: .black.opacity(0.5), radius: 20)
+                        .transition(.scale(scale: 0.95).combined(with: .opacity))
                 }
             }
         }
-        .sheet(isPresented: $appState.showSettings) {
-            SettingsView()
-        }
-        .onAppear {
-            appState.loadConversations()
-        }
+        .animation(.easeInOut(duration: 0.2), value: hasOverlay)
     }
 }
 
@@ -181,6 +212,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         registerGlobalHotkey()
+
+        // Auto-request undetermined permissions at startup (like Jarvis)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+            PermissionsManager.shared.healIfNeeded()
+        }
     }
 
     /// Register Cmd+Shift+Space as a global hotkey to show/hide the app.
