@@ -2,6 +2,7 @@ import SwiftUI
 
 /// Comprehensive dashboard for skills, goals, automations, and heartbeat status.
 struct SkillsAutomationsView: View {
+    @Environment(\.dismiss) private var dismiss
     @Bindable var appState: AppState
 
     // MARK: - Local State
@@ -54,6 +55,8 @@ struct SkillsAutomationsView: View {
                     .foregroundStyle(.secondary)
             }
             Spacer()
+            Button("Done") { dismiss() }
+                .keyboardShortcut(.defaultAction)
         }
         .padding(.horizontal, DockwrightTheme.Spacing.lg)
         .padding(.vertical, DockwrightTheme.Spacing.md)
@@ -74,6 +77,7 @@ struct SkillsAutomationsView: View {
             }
 
             Button {
+                dismiss()
                 Task {
                     await appState.sendMessage("Create a new skill for me")
                 }

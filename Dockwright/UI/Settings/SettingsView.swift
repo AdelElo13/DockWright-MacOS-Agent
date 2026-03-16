@@ -17,6 +17,11 @@ struct SettingsView: View {
             }
 
             TabView {
+            GeneralSettingsView()
+                .tabItem {
+                    Label("General", systemImage: "gearshape")
+                }
+
             APIKeysView()
                 .tabItem {
                     Label("API Keys", systemImage: "key.fill")
@@ -32,14 +37,34 @@ struct SettingsView: View {
                     Label("Voice", systemImage: "mic.fill")
                 }
 
+            AgentSettingsView()
+                .tabItem {
+                    Label("Agent", systemImage: "brain")
+                }
+
+            NotificationSettingsView()
+                .tabItem {
+                    Label("Notifications", systemImage: "bell.fill")
+                }
+
+            PrivacySettingsView()
+                .tabItem {
+                    Label("Privacy", systemImage: "lock.shield.fill")
+                }
+
+            AdvancedSettingsView()
+                .tabItem {
+                    Label("Advanced", systemImage: "slider.horizontal.3")
+                }
+
             aboutView
                 .tabItem {
                     Label("About", systemImage: "info.circle")
                 }
         }
-            .frame(width: 560, height: 480)
+            .frame(width: 620, height: 520)
         }
-        .frame(width: 560, height: 520)
+        .frame(width: 620, height: 560)
     }
 
     private var aboutView: some View {

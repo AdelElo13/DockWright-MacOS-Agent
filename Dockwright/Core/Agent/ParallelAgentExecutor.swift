@@ -58,11 +58,11 @@ final class ParallelAgentExecutor: @unchecked Sendable {
 
     /// Maps AgentTask.id -> Swift Task handle for individual cancellation.
     /// Guarded by `lock`; marked nonisolated(unsafe) to allow access from task groups.
-    private nonisolated(unsafe) var taskHandles: [String: Task<AgentTask, Never>] = [:]
+    @ObservationIgnored nonisolated(unsafe) private var taskHandles: [String: Task<AgentTask, Never>] = [:]
 
     /// Top-level group task for cancelAll.
     /// Guarded by `lock`; marked nonisolated(unsafe) to allow access from task groups.
-    private nonisolated(unsafe) var groupTask: Task<[AgentTask], Never>?
+    @ObservationIgnored nonisolated(unsafe) private var groupTask: Task<[AgentTask], Never>?
 
     // MARK: - Execute Multiple Tasks
 

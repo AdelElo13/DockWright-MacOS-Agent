@@ -3,6 +3,7 @@ import SwiftUI
 /// Dashboard showing all scheduled cron jobs and reminders.
 struct SchedulerView: View {
     let store: CronStore
+    var onClose: (() -> Void)?
     @State private var jobs: [CronJob] = []
     @State private var showAddReminder = false
     @State private var reminderMessage = ""
@@ -51,6 +52,18 @@ struct SchedulerView: View {
                 .clipShape(Capsule())
             }
             .buttonStyle(.plain)
+
+            if let onClose {
+                Button {
+                    onClose()
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 18))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Close Scheduler")
+            }
         }
         .padding(.horizontal, DockwrightTheme.Spacing.lg)
         .padding(.vertical, DockwrightTheme.Spacing.md)

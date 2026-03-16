@@ -367,8 +367,7 @@ final class AppState {
                     systemPrompt: systemPrompt
                 ) { [weak self] chunk in
                     Task { @MainActor [weak self] in
-                        guard let self else { return }
-                        self.handleChunk(chunk, assistantIndex: assistantIndex)
+                        self?.handleChunk(chunk, assistantIndex: assistantIndex)
                     }
                 }
 

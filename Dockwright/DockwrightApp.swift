@@ -101,7 +101,7 @@ struct DockwrightApp: App {
             }
 
             if appState.showScheduler {
-                SchedulerView(store: appState.cronStore)
+                SchedulerView(store: appState.cronStore, onClose: { appState.showScheduler = false })
                     .frame(minWidth: 400)
             } else {
                 ChatView(appState: appState)

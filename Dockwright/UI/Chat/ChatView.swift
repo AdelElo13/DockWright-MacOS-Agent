@@ -162,9 +162,18 @@ struct ChatView: View {
                 scrollToBottom(proxy: proxy)
             }
             .onChange(of: appState.streamingText) {
-                scrollToBottom(proxy: proxy)
+                throttledScrollToBottom(proxy: proxy)
             }
         }
+    }
+
+    /// Throttled scroll — only fires every 200ms to prevent UI jank during streaming.
+    @State private var lastScrollTime: Date = .distantPast
+    private func throttledScrollToBottom(proxy: ScrollViewProxy) {
+        let now = Date()
+        guard now.timeIntervalSince(lastScrollTime) > 0.2 else { return }
+        lastScrollTime = now
+        scrollToBottom(proxy: proxy)
     }
 
     private func scrollToBottom(proxy: ScrollViewProxy) {
