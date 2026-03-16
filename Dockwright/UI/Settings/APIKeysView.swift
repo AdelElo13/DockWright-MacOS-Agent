@@ -11,6 +11,8 @@ struct APIKeysView: View {
     @State private var kimiKey = ""
     @State private var telegramToken = ""
     @State private var telegramChatId = UserDefaults.standard.string(forKey: "telegram_chat_id") ?? ""
+    @State private var discordWebhook = UserDefaults.standard.string(forKey: "discord_webhook_url") ?? ""
+    @State private var elevenLabsKey = ""
     @State private var claudeCode = ""
     @State private var saveStatus = ""
     @State private var authManager = AuthManager()
@@ -24,6 +26,8 @@ struct APIKeysView: View {
     @State private var hasDeepSeek = false
     @State private var hasKimi = false
     @State private var hasTelegram = false
+    @State private var hasDiscord = false
+    @State private var hasElevenLabs = false
 
     var body: some View {
         ScrollView {
@@ -182,6 +186,20 @@ struct APIKeysView: View {
                         .textFieldStyle(.roundedBorder)
                 }
 
+                // Discord Section
+                Section {
+                    providerRow(name: "Discord Webhook", hasKey: hasDiscord, description: "For Discord channel notifications.")
+                    TextField("Webhook URL", text: $discordWebhook)
+                        .textFieldStyle(.roundedBorder)
+                }
+
+                // ElevenLabs Section
+                Section {
+                    providerRow(name: "ElevenLabs", hasKey: hasElevenLabs, description: "High-quality AI text-to-speech voices.")
+                    SecureField("API Key", text: $elevenLabsKey)
+                        .textFieldStyle(.roundedBorder)
+                }
+
                 // Error display
                 if let error = authManager.signInError {
                     Section {
@@ -276,6 +294,13 @@ struct APIKeysView: View {
         if !telegramChatId.isEmpty {
             UserDefaults.standard.set(telegramChatId, forKey: "telegram_chat_id")
         }
+        if !discordWebhook.isEmpty {
+            UserDefaults.standard.set(discordWebhook, forKey: "discord_webhook_url")
+        }
+        if !elevenLabsKey.isEmpty {
+            KeychainHelper.save(key: "elevenlabs_api_key", value: elevenLabsKey)
+            elevenLabsKey = ""
+        }
 
         refreshStatus()
         saveStatus = "Saved!"
@@ -299,5 +324,7 @@ struct APIKeysView: View {
         hasDeepSeek = KeychainHelper.exists(key: "deepseek_api_key")
         hasKimi = KeychainHelper.exists(key: "kimi_api_key")
         hasTelegram = KeychainHelper.exists(key: "telegram_bot_token")
+        hasDiscord = !(UserDefaults.standard.string(forKey: "discord_webhook_url") ?? "").isEmpty
+        hasElevenLabs = KeychainHelper.exists(key: "elevenlabs_api_key")
     }
 }

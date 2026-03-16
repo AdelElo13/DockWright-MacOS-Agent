@@ -29,8 +29,10 @@ final class AppState {
     // Scheduler services
     let cronStore = CronStore()
     private(set) var cronRunner: CronRunner!
-    private let notificationChannel = NotificationChannel()
-    let telegramChannel = TelegramChannel()
+    private let multiChannel = MultiChannel()
+
+    // Goals
+    let goalStore = GoalStore()
 
     // Model registry
     let modelRegistry = ModelRegistry.shared
@@ -43,6 +45,9 @@ final class AppState {
 
     // Heartbeat
     private(set) var heartbeat: HeartbeatRunner!
+
+    // Parallel agent executor
+    let parallelExecutor = ParallelAgentExecutor()
 
     // Skills
     let skillLoader = SkillLoader()
@@ -106,6 +111,12 @@ final class AppState {
         SlashCommand(command: "/watch", label: "Watch a directory", icon: "eye"),
         SlashCommand(command: "/system", label: "System info", icon: "desktopcomputer"),
         SlashCommand(command: "/dark", label: "Toggle dark mode", icon: "moon"),
+        SlashCommand(command: "/goals", label: "View goals & daily actions", icon: "target"),
+        SlashCommand(command: "/email", label: "Check email inbox", icon: "envelope"),
+        SlashCommand(command: "/calendar", label: "Today's calendar events", icon: "calendar"),
+        SlashCommand(command: "/browser", label: "Current browser tab", icon: "safari"),
+        SlashCommand(command: "/project", label: "Analyze current project", icon: "folder.badge.gearshape"),
+        SlashCommand(command: "/skills", label: "List available skills", icon: "wand.and.stars"),
     ]
 
     var filteredSlashCommands: [SlashCommand] {
@@ -154,13 +165,13 @@ final class AppState {
     }
 
     init() {
-        // Set up scheduler
-        cronRunner = CronRunner(store: cronStore, channel: notificationChannel)
+        // Set up scheduler with multi-channel delivery
+        cronRunner = CronRunner(store: cronStore, channel: NotificationChannel())
         tools.register(CronTool(store: cronStore))
         cronRunner.start()
 
         // Set up heartbeat
-        heartbeat = HeartbeatRunner(channel: notificationChannel, cronStore: cronStore)
+        heartbeat = HeartbeatRunner(channel: NotificationChannel(), cronStore: cronStore)
         heartbeat.start()
 
         // Set up memory -- failure is non-fatal, app works without it
@@ -172,7 +183,7 @@ final class AppState {
             log.error("[Memory] Failed to initialize (non-fatal, memory features disabled): \(error.localizedDescription)")
         }
 
-        // Register all new tools
+        // Register core tools
         tools.register(VisionTool())
         tools.register(ClipboardTool())
         tools.register(SystemTool())
@@ -180,6 +191,15 @@ final class AppState {
         tools.register(ExportTool())
         tools.register(RemindersTool())
         tools.register(NotesTool())
+
+        // Register new killer tools
+        tools.register(EmailTool())
+        tools.register(CalendarTool())
+        tools.register(BrowserTool())
+        tools.register(ProjectContextTool())
+        tools.register(DataExportTool())
+        tools.register(GoalTool(store: goalStore))
+        tools.register(AutoSkillCreatorTool())
 
         // Start sensory ambient loop (screen capture + OCR every 15s)
         // This is non-fatal -- if screen capture permission is denied, it degrades gracefully
@@ -204,12 +224,12 @@ final class AppState {
     private var systemPrompt: String {
         let context = worldModel.contextString()
         var prompt = """
-        You are Dockwright, a powerful macOS AI assistant. You have access to tools that let you:
+        You are Dockwright, a powerful macOS AI assistant — smarter, faster, and more capable than any other. You have access to tools that let you:
         - Run shell commands on the user's Mac
         - Read and write files
         - Search the web
-        - Set reminders and schedule recurring tasks
-        - See what's on the user's screen
+        - Set reminders and schedule recurring tasks (cron jobs, one-shot reminders)
+        - See what's on the user's screen (ambient screen capture + OCR)
         - Know which apps and browser tabs are open
         - Analyze images (vision tool) — users can drop/paste images into chat
         - Read and write the system clipboard
@@ -217,6 +237,15 @@ final class AppState {
         - Watch directories for file changes
         - Export conversations as Markdown or PDF
         - Save and recall persistent memories about the user
+        - Read and manage emails via Mail.app (read inbox, draft replies, send emails, search)
+        - Access calendar events (today's schedule, upcoming events, create events)
+        - Control the browser (get current tab, list all tabs, open URLs, read page content)
+        - Understand project context (git status, log, diff, project structure, find files)
+        - Export structured data (CSV, JSON, HTML reports) to Desktop
+        - Track goals and generate daily action items (brain dump → structured goals → daily tasks)
+        - Create and manage reusable AI skills (the AI can teach itself new capabilities)
+        - Run multiple agent tasks in parallel (like Manus AI)
+        - Deliver notifications across channels (Notification Center, Telegram, Discord)
 
         Current context:
         \(context)
@@ -581,6 +610,18 @@ final class AppState {
             await sendMessage("Show me my system info")
         case "/dark":
             await sendMessage("Toggle dark mode")
+        case "/goals":
+            await sendMessage("Show me my goals and today's daily actions")
+        case "/email":
+            await sendMessage("Check my email inbox and summarize the latest messages")
+        case "/calendar":
+            await sendMessage("What's on my calendar today?")
+        case "/browser":
+            await sendMessage("What page am I looking at in my browser?")
+        case "/project":
+            await sendMessage("Analyze the current project structure and git status")
+        case "/skills":
+            await sendMessage("List all available skills")
         default:
             appendError("Unknown command: \(command)")
         }

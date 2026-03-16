@@ -268,6 +268,45 @@ struct VoiceSettingsView: View {
             }
 
             Section("Text-to-Speech (TTS)") {
+                Picker("Provider", selection: Binding(
+                    get: { TTSService.shared.provider },
+                    set: { TTSService.shared.provider = $0 }
+                )) {
+                    ForEach(TTSService.TTSProvider.allCases) { provider in
+                        Text(provider.rawValue).tag(provider)
+                    }
+                }
+
+                if TTSService.shared.provider == .elevenLabs {
+                    HStack {
+                        Text("Voice")
+                            .font(DockwrightTheme.Typography.body)
+                        Spacer()
+                        if TTSService.shared.isLoadingVoices {
+                            ProgressView().controlSize(.small)
+                        }
+                        Picker("", selection: Binding(
+                            get: { TTSService.shared.elevenLabsVoiceId },
+                            set: { TTSService.shared.elevenLabsVoiceId = $0 }
+                        )) {
+                            if TTSService.shared.elevenLabsVoices.isEmpty {
+                                Text("Loading...").tag(TTSService.shared.elevenLabsVoiceId)
+                            }
+                            ForEach(TTSService.shared.elevenLabsVoices, id: \.id) { voice in
+                                Text(voice.label).tag(voice.id)
+                            }
+                        }
+                        .frame(maxWidth: 200)
+                    }
+                    .onAppear { TTSService.shared.fetchElevenLabsVoices() }
+
+                    if !KeychainHelper.exists(key: "elevenlabs_api_key") {
+                        Text("Add ElevenLabs API key in API Keys tab")
+                            .font(DockwrightTheme.Typography.caption)
+                            .foregroundStyle(.orange)
+                    }
+                }
+
                 VStack(alignment: .leading) {
                     Text("Speech rate: \(String(format: "%.2f", ttsRate))")
                         .font(DockwrightTheme.Typography.caption)

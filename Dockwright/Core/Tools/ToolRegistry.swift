@@ -34,6 +34,9 @@ nonisolated final class ToolRegistry: @unchecked Sendable {
         register(ShellTool())
         register(FileTool())
         register(WebSearchTool())
+        register(EmailTool())
+        register(CalendarTool())
+        register(BrowserTool())
     }
 
     func register(_ tool: any Tool) {

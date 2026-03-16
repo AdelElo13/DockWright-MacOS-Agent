@@ -207,14 +207,19 @@ struct ChatView: View {
             // Suggestion chips
             VStack(spacing: DockwrightTheme.Spacing.sm) {
                 HStack(spacing: DockwrightTheme.Spacing.sm) {
+                    suggestionChip("Check my emails", icon: "envelope")
+                    suggestionChip("What's on my calendar?", icon: "calendar")
                     suggestionChip("Summarize my clipboard", icon: "doc.on.clipboard")
-                    suggestionChip("Search for Swift tutorials", icon: "magnifyingglass")
-                    suggestionChip("List files in Downloads", icon: "folder")
                 }
                 HStack(spacing: DockwrightTheme.Spacing.sm) {
-                    suggestionChip("Show system info", icon: "desktopcomputer")
-                    suggestionChip("Watch Downloads for changes", icon: "eye")
-                    suggestionChip("Toggle dark mode", icon: "moon")
+                    suggestionChip("Show my goals", icon: "target")
+                    suggestionChip("Analyze this project", icon: "folder.badge.gearshape")
+                    suggestionChip("What's in my browser?", icon: "safari")
+                }
+                HStack(spacing: DockwrightTheme.Spacing.sm) {
+                    suggestionChip("Search the web", icon: "magnifyingglass")
+                    suggestionChip("System info", icon: "desktopcomputer")
+                    suggestionChip("Create a skill", icon: "wand.and.stars")
                 }
             }
 

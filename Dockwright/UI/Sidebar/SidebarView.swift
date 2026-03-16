@@ -7,6 +7,7 @@ struct SidebarView: View {
     @State private var searchQuery = ""
     @State private var showSearch = false
     @State private var hoveredConversationId: String?
+    @State private var showSkillsAutomations = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -100,51 +101,46 @@ struct SidebarView: View {
 
             Spacer(minLength: 0)
 
-            // Bottom buttons
+            // Bottom navigation
             Divider().opacity(0.2)
 
-            Button {
-                appState.showScheduler.toggle()
-            } label: {
-                HStack(spacing: DockwrightTheme.Spacing.sm) {
-                    Image(systemName: "clock.arrow.circlepath")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(.white)
-                    Text("Scheduler")
-                        .font(DockwrightTheme.Typography.body)
-                        .foregroundStyle(.white)
-                    Spacer()
-                    let jobCount = appState.cronStore.listAll().count
-                    if jobCount > 0 {
-                        Text("\(jobCount)")
-                            .font(DockwrightTheme.Typography.captionMono)
-                            .foregroundStyle(.tertiary)
-                    }
+            sidebarButton(icon: "target", label: "Goals") {
+                Task { await appState.sendMessage("Show me my goals and today's daily actions") }
+            } badge: {
+                let goalCount = appState.goalStore.listGoals(activeOnly: true).count
+                if goalCount > 0 {
+                    Text("\(goalCount)")
+                        .font(DockwrightTheme.Typography.captionMono)
+                        .foregroundStyle(.tertiary)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, DockwrightTheme.Spacing.md)
-                .padding(.vertical, DockwrightTheme.Spacing.sm)
             }
-            .buttonStyle(.plain)
-            .padding(.horizontal, DockwrightTheme.Spacing.sm)
 
-            Button {
-                showSettings = true
-            } label: {
-                HStack(spacing: DockwrightTheme.Spacing.sm) {
-                    Image(systemName: "gearshape")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(.white)
-                    Text("Settings")
-                        .font(DockwrightTheme.Typography.body)
-                        .foregroundStyle(.white)
+            sidebarButton(icon: "clock.arrow.circlepath", label: "Scheduler") {
+                appState.showScheduler.toggle()
+            } badge: {
+                let jobCount = appState.cronStore.listAll().count
+                if jobCount > 0 {
+                    Text("\(jobCount)")
+                        .font(DockwrightTheme.Typography.captionMono)
+                        .foregroundStyle(.tertiary)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, DockwrightTheme.Spacing.md)
-                .padding(.vertical, DockwrightTheme.Spacing.sm)
             }
-            .buttonStyle(.plain)
-            .padding(.horizontal, DockwrightTheme.Spacing.sm)
+
+            sidebarButton(icon: "brain", label: appState.agentMode ? "Agent Mode ON" : "Agent Mode") {
+                appState.agentMode.toggle()
+            } badge: {
+                if appState.agentMode {
+                    Circle()
+                        .fill(DockwrightTheme.success)
+                        .frame(width: 6, height: 6)
+                }
+            }
+
+            sidebarButton(icon: "gearshape", label: "Settings") {
+                showSettings = true
+            } badge: {
+                EmptyView()
+            }
             .padding(.bottom, DockwrightTheme.Spacing.sm)
         }
         .frame(maxHeight: .infinity)
@@ -242,6 +238,26 @@ struct SidebarView: View {
             .padding(.horizontal, DockwrightTheme.Spacing.lg)
             .padding(.top, DockwrightTheme.Spacing.md)
             .padding(.bottom, DockwrightTheme.Spacing.xs)
+    }
+
+    private func sidebarButton<Badge: View>(icon: String, label: String, action: @escaping () -> Void, @ViewBuilder badge: () -> Badge) -> some View {
+        Button(action: action) {
+            HStack(spacing: DockwrightTheme.Spacing.sm) {
+                Image(systemName: icon)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.white)
+                Text(label)
+                    .font(DockwrightTheme.Typography.body)
+                    .foregroundStyle(.white)
+                Spacer()
+                badge()
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, DockwrightTheme.Spacing.md)
+            .padding(.vertical, DockwrightTheme.Spacing.sm)
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, DockwrightTheme.Spacing.sm)
     }
 
     private func relativeDate(_ date: Date) -> String {
