@@ -755,6 +755,42 @@ When implementing each component, READ the corresponding Jarvis file first:
 | CronTool | `/Users/a/jarvis_assistant_v2/jarvis/plugins/cron_plugin.py` |
 | StreamChunk handling | `/Users/a/Open-Jarvis/JarvisMac/JarvisMac/Services/JarvisController.swift` |
 
+## PHASE 6 — Manus-Inspired Features
+
+**Goal:** Make Dockwright feel like a real autonomous agent, not just a chatbot.
+
+### 6.1 Plan-First Execution (Manus pattern)
+When the user gives a complex task, Dockwright should:
+1. **Show a plan first** — numbered steps with descriptions
+2. **Execute step by step** — update each step's status (pending → running → done/failed)
+3. **Allow intervention** — user can pause, skip, or modify steps mid-execution
+
+**Implementation:**
+- `TaskPlan` model: array of `PlanStep` (title, description, status, output)
+- `PlanExecutor`: iterates steps, calls tools, updates UI
+- `PlanView`: SwiftUI view showing step list with status indicators
+- LLM generates plan as structured JSON via tool call `create_plan`
+
+### 6.2 Live Agent Activity Panel (Manus "Computer" panel)
+- Side panel (like Inspector) showing real-time agent actions
+- Shows: which tool is running, what URL is being fetched, what file is being read
+- Scrollable log of all actions taken
+- Can replay past sessions
+
+### 6.3 Background Task Execution
+- Tasks can continue when app is in background
+- macOS notification when task completes
+- Uses `ProcessInfo.processInfo.performActivity()` to prevent system sleep
+- Task results stored and presented when user returns
+
+### 6.4 Multi-Step Task Decomposition
+- LLM tool: `decompose_task` — breaks complex request into subtasks
+- Each subtask can use different tools
+- Results from earlier steps feed into later steps
+- Progress bar in chat showing overall completion
+
+---
+
 ## IMPORTANT NOTES
 
 - **Deployment target must be changed to 14.0** in project.pbxproj (currently 26.2 which is wrong for distribution)

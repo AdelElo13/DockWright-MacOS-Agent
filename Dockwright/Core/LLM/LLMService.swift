@@ -1,0 +1,568 @@
+import Foundation
+import os
+
+/// LLM provider types supported by Dockwright.
+enum LLMProvider: String, CaseIterable, Sendable {
+    case anthropic = "Anthropic"
+    case openai = "OpenAI"
+    case ollama = "Ollama"
+}
+
+/// Model definitions with provider mapping.
+struct LLMModelInfo: Sendable {
+    let id: String
+    let displayName: String
+    let provider: LLMProvider
+}
+
+/// Available models across all providers.
+enum LLMModels {
+    static let allModels: [LLMModelInfo] = [
+        // Anthropic
+        LLMModelInfo(id: "claude-sonnet-4-20250514", displayName: "Claude Sonnet 4", provider: .anthropic),
+        LLMModelInfo(id: "claude-3-5-haiku-20241022", displayName: "Claude 3.5 Haiku", provider: .anthropic),
+        // OpenAI
+        LLMModelInfo(id: "gpt-4o", displayName: "GPT-4o", provider: .openai),
+        LLMModelInfo(id: "gpt-4o-mini", displayName: "GPT-4o Mini", provider: .openai),
+        // Ollama (placeholder — auto-detected at runtime)
+        LLMModelInfo(id: "llama3.1:latest", displayName: "Llama 3.1 (Ollama)", provider: .ollama),
+        LLMModelInfo(id: "mistral:latest", displayName: "Mistral (Ollama)", provider: .ollama),
+    ]
+
+    static func provider(for modelId: String) -> LLMProvider {
+        allModels.first { $0.id == modelId }?.provider ?? .anthropic
+    }
+
+    static func apiKeyName(for provider: LLMProvider) -> String {
+        switch provider {
+        case .anthropic: return "anthropic_api_key"
+        case .openai: return "openai_api_key"
+        case .ollama: return "" // No key needed
+        }
+    }
+}
+
+/// Multi-provider streaming LLM client.
+/// Supports Anthropic, OpenAI, and Ollama (OpenAI-compatible).
+/// Uses `URLSession.bytes(for:)` for SSE parsing — no AsyncStream.
+final class LLMService: @unchecked Sendable {
+    private let session: URLSession
+
+    nonisolated init() {
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 30   // 30s connection timeout
+        config.timeoutIntervalForResource = 180 // 180s total streaming timeout
+        config.waitsForConnectivity = true
+        config.timeoutIntervalForResource = 180
+        self.session = URLSession(configuration: config)
+    }
+
+    // MARK: - Streaming Chat (Multi-Provider Router)
+
+    func streamChat(
+        messages: [LLMMessage],
+        tools: [[String: Any]]? = nil,
+        model: String = "claude-sonnet-4-20250514",
+        apiKey: String,
+        systemPrompt: String = "",
+        onChunk: @escaping @Sendable (StreamChunk) -> Void
+    ) async throws -> LLMResponse {
+        let provider = LLMModels.provider(for: model)
+
+        return try await withThrowingTaskGroup(of: LLMResponse.self) { group in
+            // Watchdog timeout
+            group.addTask {
+                try await Task.sleep(nanoseconds: 180_000_000_000)
+                throw LLMError.timeout
+            }
+
+            // Provider-specific stream
+            group.addTask { [self] in
+                switch provider {
+                case .anthropic:
+                    return try await self.performAnthropicStream(
+                        messages: messages, tools: tools, model: model,
+                        apiKey: apiKey, systemPrompt: systemPrompt, onChunk: onChunk
+                    )
+                case .openai:
+                    return try await self.performOpenAIStream(
+                        messages: messages, tools: tools, model: model,
+                        apiKey: apiKey, systemPrompt: systemPrompt, onChunk: onChunk,
+                        baseURL: "https://api.openai.com/v1/chat/completions"
+                    )
+                case .ollama:
+                    return try await self.performOpenAIStream(
+                        messages: messages, tools: tools, model: model,
+                        apiKey: "", systemPrompt: systemPrompt, onChunk: onChunk,
+                        baseURL: "http://localhost:11434/v1/chat/completions"
+                    )
+                }
+            }
+
+            guard let result = try await group.next() else {
+                throw LLMError.invalidResponse
+            }
+            group.cancelAll()
+            return result
+        }
+    }
+
+    // MARK: - Ollama Model Discovery
+
+    /// Fetch available models from Ollama (if running).
+    func fetchOllamaModels() async -> [String] {
+        guard let url = URL(string: "http://localhost:11434/api/tags") else { return [] }
+        do {
+            let (data, _) = try await session.data(for: URLRequest(url: url))
+            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let models = json["models"] as? [[String: Any]] {
+                return models.compactMap { $0["name"] as? String }
+            }
+        } catch {
+            // Ollama not running
+        }
+        return []
+    }
+
+    // MARK: - Anthropic SSE Stream
+
+    private func performAnthropicStream(
+        messages: [LLMMessage],
+        tools: [[String: Any]]?,
+        model: String,
+        apiKey: String,
+        systemPrompt: String,
+        onChunk: @escaping @Sendable (StreamChunk) -> Void
+    ) async throws -> LLMResponse {
+        guard let url = URL(string: "https://api.anthropic.com/v1/messages") else {
+            throw LLMError.apiError("Invalid Anthropic API URL")
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
+        request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+        request.setValue("application/json", forHTTPHeaderField: "content-type")
+
+        var body: [String: Any] = [
+            "model": model,
+            "max_tokens": 8192,
+            "stream": true,
+        ]
+        if !systemPrompt.isEmpty { body["system"] = systemPrompt }
+        body["messages"] = buildAnthropicMessages(messages)
+        if let tools, !tools.isEmpty { body["tools"] = tools }
+
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (bytes, response) = try await session.bytes(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else { throw LLMError.invalidResponse }
+
+        if httpResponse.statusCode != 200 {
+            var errorBody = ""
+            for try await line in bytes.lines { errorBody += line; if errorBody.count > 2000 { break } }
+            if httpResponse.statusCode == 401 { throw LLMError.unauthorized }
+            if httpResponse.statusCode == 429 { throw LLMError.rateLimited }
+            if httpResponse.statusCode >= 500 {
+                throw LLMError.apiError("Server error (HTTP \(httpResponse.statusCode)). The API may be experiencing issues. Try again in a moment.")
+            }
+            throw LLMError.apiError("HTTP \(httpResponse.statusCode): \(errorBody.prefix(500))")
+        }
+
+        var fullText = ""
+        var inputTokens = 0
+        var outputTokens = 0
+        var finishReason: String?
+        var thinkingContent = ""
+
+        struct AnthropicToolBlock {
+            var id: String
+            var name: String
+            var arguments: String
+        }
+        var currentToolBlocks: [AnthropicToolBlock] = []
+        var activeToolIndex: Int?
+
+        for try await line in bytes.lines {
+            guard line.hasPrefix("data: ") else { continue }
+            let jsonStr = String(line.dropFirst(6))
+            if jsonStr == "[DONE]" { break }
+
+            guard let data = jsonStr.data(using: .utf8),
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let eventType = json["type"] as? String else { continue }
+
+            switch eventType {
+            case "message_start":
+                if let message = json["message"] as? [String: Any],
+                   let usage = message["usage"] as? [String: Any],
+                   let input = usage["input_tokens"] as? Int {
+                    inputTokens = input
+                }
+
+            case "content_block_start":
+                if let contentBlock = json["content_block"] as? [String: Any] {
+                    let blockType = contentBlock["type"] as? String ?? ""
+                    if blockType == "tool_use" {
+                        let id = contentBlock["id"] as? String ?? UUID().uuidString
+                        let name = contentBlock["name"] as? String ?? "unknown"
+                        currentToolBlocks.append(AnthropicToolBlock(id: id, name: name, arguments: ""))
+                        activeToolIndex = currentToolBlocks.count - 1
+                        onChunk(.toolStarted(name))
+                        onChunk(.activity(.executing(name)))
+                    } else if blockType == "thinking" {
+                        onChunk(.activity(.thinking))
+                    }
+                }
+
+            case "content_block_delta":
+                if let delta = json["delta"] as? [String: Any] {
+                    let deltaType = delta["type"] as? String ?? ""
+                    if deltaType == "text_delta", let text = delta["text"] as? String {
+                        fullText += text
+                        onChunk(.textDelta(text))
+                    } else if deltaType == "input_json_delta", let partial = delta["partial_json"] as? String {
+                        if let idx = activeToolIndex {
+                            currentToolBlocks[idx].arguments += partial
+                        }
+                    } else if deltaType == "thinking_delta", let thinking = delta["thinking"] as? String {
+                        thinkingContent += thinking
+                        onChunk(.thinking(thinking))
+                    }
+                }
+
+            case "content_block_stop":
+                activeToolIndex = nil
+
+            case "message_delta":
+                if let delta = json["delta"] as? [String: Any] {
+                    finishReason = delta["stop_reason"] as? String
+                }
+                if let usage = json["usage"] as? [String: Any],
+                   let output = usage["output_tokens"] as? Int {
+                    outputTokens = output
+                }
+
+            default:
+                break
+            }
+        }
+
+        let toolCalls: [ToolCall]? = currentToolBlocks.isEmpty ? nil : currentToolBlocks.map { block in
+            var args = block.arguments
+            if !args.isEmpty, (try? JSONSerialization.jsonObject(with: Data(args.utf8))) == nil {
+                for suffix in ["}", "}}", "\"}", "\"}}", "\"]}", "\"]}}" ] {
+                    let candidate = args + suffix
+                    if (try? JSONSerialization.jsonObject(with: Data(candidate.utf8))) != nil {
+                        args = candidate
+                        break
+                    }
+                }
+            }
+            return ToolCall(id: block.id, type: "function", function: ToolCallFunction(name: block.name, arguments: args))
+        }
+        let doneText = fullText.isEmpty ? (toolCalls != nil ? "[tool_use]" : "") : fullText
+        onChunk(.done(doneText))
+
+        return LLMResponse(
+            content: fullText.isEmpty ? nil : fullText,
+            toolCalls: toolCalls,
+            finishReason: finishReason,
+            inputTokens: inputTokens,
+            outputTokens: outputTokens,
+            thinkingContent: thinkingContent.isEmpty ? nil : thinkingContent
+        )
+    }
+
+    // MARK: - OpenAI / Ollama SSE Stream
+
+    private func performOpenAIStream(
+        messages: [LLMMessage],
+        tools: [[String: Any]]?,
+        model: String,
+        apiKey: String,
+        systemPrompt: String,
+        onChunk: @escaping @Sendable (StreamChunk) -> Void,
+        baseURL: String
+    ) async throws -> LLMResponse {
+        guard let url = URL(string: baseURL) else {
+            throw LLMError.apiError("Invalid API URL: \(baseURL)")
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "content-type")
+        if !apiKey.isEmpty {
+            request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "authorization")
+        }
+
+        var body: [String: Any] = [
+            "model": model,
+            "stream": true,
+            "max_tokens": 8192,
+        ]
+
+        // Build OpenAI-format messages (system + user/assistant/tool)
+        body["messages"] = buildOpenAIMessages(messages, systemPrompt: systemPrompt)
+
+        // Convert tools to OpenAI format
+        if let tools, !tools.isEmpty {
+            body["tools"] = tools.map { tool -> [String: Any] in
+                [
+                    "type": "function",
+                    "function": [
+                        "name": tool["name"] as? String ?? "",
+                        "description": tool["description"] as? String ?? "",
+                        "parameters": tool["input_schema"] ?? [:],
+                    ] as [String: Any]
+                ] as [String: Any]
+            }
+        }
+
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (bytes, response) = try await session.bytes(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else { throw LLMError.invalidResponse }
+
+        if httpResponse.statusCode != 200 {
+            var errorBody = ""
+            for try await line in bytes.lines { errorBody += line; if errorBody.count > 2000 { break } }
+            if httpResponse.statusCode == 401 { throw LLMError.unauthorized }
+            if httpResponse.statusCode == 429 { throw LLMError.rateLimited }
+            if httpResponse.statusCode >= 500 {
+                throw LLMError.apiError("Server error (HTTP \(httpResponse.statusCode)). The API may be experiencing issues. Try again in a moment.")
+            }
+            throw LLMError.apiError("HTTP \(httpResponse.statusCode): \(errorBody.prefix(500))")
+        }
+
+        var fullText = ""
+        var inputTokens = 0
+        var outputTokens = 0
+        var finishReason: String?
+
+        // OpenAI tool call accumulation
+        struct OAIToolCall {
+            var id: String
+            var name: String
+            var arguments: String
+        }
+        var toolCallAccum: [Int: OAIToolCall] = [:]
+
+        for try await line in bytes.lines {
+            guard line.hasPrefix("data: ") else { continue }
+            let jsonStr = String(line.dropFirst(6))
+            if jsonStr == "[DONE]" { break }
+
+            guard let data = jsonStr.data(using: .utf8),
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
+
+            // Usage (OpenAI includes it in the final chunk)
+            if let usage = json["usage"] as? [String: Any] {
+                inputTokens = usage["prompt_tokens"] as? Int ?? 0
+                outputTokens = usage["completion_tokens"] as? Int ?? 0
+            }
+
+            guard let choices = json["choices"] as? [[String: Any]],
+                  let choice = choices.first else { continue }
+
+            if let fr = choice["finish_reason"] as? String {
+                finishReason = fr
+            }
+
+            guard let delta = choice["delta"] as? [String: Any] else { continue }
+
+            // Text content
+            if let content = delta["content"] as? String {
+                fullText += content
+                onChunk(.textDelta(content))
+            }
+
+            // Tool calls
+            if let tcs = delta["tool_calls"] as? [[String: Any]] {
+                for tc in tcs {
+                    let index = tc["index"] as? Int ?? 0
+                    if let id = tc["id"] as? String {
+                        let fn = tc["function"] as? [String: Any]
+                        let name = fn?["name"] as? String ?? ""
+                        toolCallAccum[index] = OAIToolCall(id: id, name: name, arguments: "")
+                        onChunk(.toolStarted(name))
+                        onChunk(.activity(.executing(name)))
+                    }
+                    if let fn = tc["function"] as? [String: Any],
+                       let args = fn["arguments"] as? String {
+                        toolCallAccum[index, default: OAIToolCall(id: "", name: "", arguments: "")].arguments += args
+                    }
+                }
+            }
+        }
+
+        // Build tool calls
+        let toolCalls: [ToolCall]? = toolCallAccum.isEmpty ? nil : toolCallAccum.sorted(by: { $0.key < $1.key }).map { _, tc in
+            var args = tc.arguments
+            if !args.isEmpty, (try? JSONSerialization.jsonObject(with: Data(args.utf8))) == nil {
+                for suffix in ["}", "}}", "\"}", "\"}}", "\"]}", "\"]}}" ] {
+                    let candidate = args + suffix
+                    if (try? JSONSerialization.jsonObject(with: Data(candidate.utf8))) != nil {
+                        args = candidate
+                        break
+                    }
+                }
+            }
+            return ToolCall(
+                id: tc.id,
+                type: "function",
+                function: ToolCallFunction(name: tc.name, arguments: args)
+            )
+        }
+
+        let doneText = fullText.isEmpty ? (toolCalls != nil ? "[tool_use]" : "") : fullText
+        onChunk(.done(doneText))
+
+        return LLMResponse(
+            content: fullText.isEmpty ? nil : fullText,
+            toolCalls: toolCalls,
+            finishReason: finishReason,
+            inputTokens: inputTokens,
+            outputTokens: outputTokens,
+            thinkingContent: nil
+        )
+    }
+
+    // MARK: - Message Conversion (Anthropic)
+
+    private func buildAnthropicMessages(_ messages: [LLMMessage]) -> [[String: Any]] {
+        var result: [[String: Any]] = []
+
+        for msg in messages {
+            if msg.role == "system" { continue }
+            var entry: [String: Any] = ["role": msg.role == "tool" ? "user" : msg.role]
+
+            if msg.role == "tool" {
+                entry["content"] = [[
+                    "type": "tool_result",
+                    "tool_use_id": msg.toolCallId ?? "",
+                    "content": msg.content ?? ""
+                ]]
+            } else if msg.role == "assistant", let toolCalls = msg.toolCalls, !toolCalls.isEmpty {
+                var contentBlocks: [[String: Any]] = []
+                if let text = msg.content, !text.isEmpty {
+                    contentBlocks.append(["type": "text", "text": text])
+                }
+                for tc in toolCalls {
+                    var toolBlock: [String: Any] = [
+                        "type": "tool_use",
+                        "id": tc.id,
+                        "name": tc.function.name,
+                    ]
+                    if let args = try? JSONSerialization.jsonObject(with: Data(tc.function.arguments.utf8)) {
+                        toolBlock["input"] = args
+                    } else {
+                        toolBlock["input"] = [String: String]()
+                    }
+                    contentBlocks.append(toolBlock)
+                }
+                entry["content"] = contentBlocks
+            } else if let images = msg.images, !images.isEmpty {
+                var contentBlocks: [[String: Any]] = []
+                for img in images {
+                    contentBlocks.append([
+                        "type": "image",
+                        "source": [
+                            "type": img.type,
+                            "media_type": img.mediaType,
+                            "data": img.data
+                        ]
+                    ])
+                }
+                if let text = msg.content, !text.isEmpty {
+                    contentBlocks.append(["type": "text", "text": text])
+                }
+                entry["content"] = contentBlocks
+            } else {
+                entry["content"] = msg.content ?? ""
+            }
+
+            result.append(entry)
+        }
+
+        return result
+    }
+
+    // MARK: - Message Conversion (OpenAI / Ollama)
+
+    private func buildOpenAIMessages(_ messages: [LLMMessage], systemPrompt: String) -> [[String: Any]] {
+        var result: [[String: Any]] = []
+
+        if !systemPrompt.isEmpty {
+            result.append(["role": "system", "content": systemPrompt])
+        }
+
+        for msg in messages {
+            if msg.role == "system" { continue }
+
+            if msg.role == "tool" {
+                result.append([
+                    "role": "tool",
+                    "tool_call_id": msg.toolCallId ?? "",
+                    "content": msg.content ?? ""
+                ])
+            } else if msg.role == "assistant", let toolCalls = msg.toolCalls, !toolCalls.isEmpty {
+                var entry: [String: Any] = ["role": "assistant"]
+                if let text = msg.content, !text.isEmpty {
+                    entry["content"] = text
+                }
+                entry["tool_calls"] = toolCalls.map { tc in
+                    [
+                        "id": tc.id,
+                        "type": "function",
+                        "function": [
+                            "name": tc.function.name,
+                            "arguments": tc.function.arguments
+                        ] as [String: Any]
+                    ] as [String: Any]
+                }
+                result.append(entry)
+            } else {
+                result.append([
+                    "role": msg.role,
+                    "content": msg.content ?? ""
+                ])
+            }
+        }
+
+        return result
+    }
+
+}
+
+// MARK: - Errors
+
+enum LLMError: LocalizedError {
+    case timeout
+    case invalidResponse
+    case unauthorized
+    case rateLimited
+    case apiError(String)
+    case noAPIKey
+    case noInternet
+    case serverError(Int)
+
+    var errorDescription: String? {
+        switch self {
+        case .timeout: return "Request timed out after 180 seconds. The API may be slow -- try again."
+        case .invalidResponse: return "Invalid response from API"
+        case .unauthorized: return "Invalid API key. Check Settings > API Keys."
+        case .rateLimited: return "Rate limited by API. Please wait a moment and try again."
+        case .apiError(let msg): return msg
+        case .noAPIKey: return "No API key configured. Go to Settings > API Keys."
+        case .noInternet: return "No internet connection. Check your network and try again."
+        case .serverError(let code): return "API server error (HTTP \(code)). Try again in a moment."
+        }
+    }
+
+    /// Whether this error is retryable
+    var isRetryable: Bool {
+        switch self {
+        case .rateLimited, .timeout, .serverError: return true
+        default: return false
+        }
+    }
+}
