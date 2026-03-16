@@ -218,15 +218,21 @@ struct ChatView: View {
                 HStack(spacing: DockwrightTheme.Spacing.sm) {
                     suggestionChip("Check my emails", icon: "envelope")
                     suggestionChip("What's on my calendar?", icon: "calendar")
-                    suggestionChip("Summarize my clipboard", icon: "doc.on.clipboard")
+                    suggestionChip("Show my reminders", icon: "checklist")
+                }
+                HStack(spacing: DockwrightTheme.Spacing.sm) {
+                    suggestionChip("What's playing?", icon: "music.note")
+                    suggestionChip("Take a screenshot", icon: "camera.viewfinder")
+                    suggestionChip("Read my clipboard", icon: "doc.on.clipboard")
+                }
+                HStack(spacing: DockwrightTheme.Spacing.sm) {
+                    suggestionChip("Search contacts", icon: "person.crop.circle")
+                    suggestionChip("Show my notes", icon: "note.text")
+                    suggestionChip("Battery status", icon: "battery.100")
                 }
                 HStack(spacing: DockwrightTheme.Spacing.sm) {
                     suggestionChip("Show my goals", icon: "target")
-                    suggestionChip("Analyze this project", icon: "folder.badge.gearshape")
                     suggestionChip("What's in my browser?", icon: "safari")
-                }
-                HStack(spacing: DockwrightTheme.Spacing.sm) {
-                    suggestionChip("Search the web", icon: "magnifyingglass")
                     suggestionChip("System info", icon: "desktopcomputer")
                     suggestionChip("Create a skill", icon: "wand.and.stars")
                 }

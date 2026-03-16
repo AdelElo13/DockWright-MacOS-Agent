@@ -212,7 +212,7 @@ enum LLMProvider: String, CaseIterable, Sendable, Codable {
     }
 
     /// URL for the models list API (nil if provider has none).
-    var modelsListEndpoint: String? {
+    nonisolated var modelsListEndpoint: String? {
         switch self {
         case .anthropic:
             return nil  // No list API
@@ -234,7 +234,7 @@ enum LLMProvider: String, CaseIterable, Sendable, Codable {
     }
 
     /// Keychain key for this provider's API key.
-    var keychainKey: String {
+    nonisolated var keychainKey: String {
         switch self {
         case .anthropic: return "anthropic_api_key"
         case .openai:    return "openai_api_key"
@@ -266,7 +266,7 @@ nonisolated struct LLMModelInfo: Sendable, Codable, Identifiable, Equatable {
 /// Static model definitions and provider lookup.
 enum LLMModels {
     /// Hardcoded fallback models per provider (2026 latest).
-    static let defaultModels: [LLMModelInfo] = [
+    nonisolated static let defaultModels: [LLMModelInfo] = [
         // Anthropic
         LLMModelInfo(id: "claude-opus-4-6", displayName: "Claude Opus 4.6", provider: .anthropic),
         LLMModelInfo(id: "claude-sonnet-4-6", displayName: "Claude Sonnet 4.6", provider: .anthropic),
@@ -339,8 +339,8 @@ final class ModelRegistry: @unchecked Sendable {
     static let shared = ModelRegistry()
 
     private let lock = NSLock()
-    private var _cachedModels: [LLMProvider: [LLMModelInfo]] = [:]
-    private var _lastFetchDate: Date?
+    nonisolated(unsafe) private var _cachedModels: [LLMProvider: [LLMModelInfo]] = [:]
+    nonisolated(unsafe) private var _lastFetchDate: Date?
 
     private let cacheKey = "ModelRegistry.cachedModels"
     private let cacheTimestampKey = "ModelRegistry.cacheTimestamp"
@@ -562,7 +562,7 @@ final class ModelRegistry: @unchecked Sendable {
 
     // MARK: - Persistence (UserDefaults)
 
-    private func saveToDisk() {
+    nonisolated private func saveToDisk() {
         let models = lock.withLock { _cachedModels }
         var flat: [LLMModelInfo] = []
         for (_, list) in models { flat.append(contentsOf: list) }
@@ -573,7 +573,7 @@ final class ModelRegistry: @unchecked Sendable {
         UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: cacheTimestampKey)
     }
 
-    private func loadFromDisk() {
+    nonisolated private func loadFromDisk() {
         guard let data = UserDefaults.standard.data(forKey: cacheKey),
               let models = try? JSONDecoder().decode([LLMModelInfo].self, from: data) else { return }
 

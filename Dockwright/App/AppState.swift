@@ -109,7 +109,7 @@ final class AppState {
         SlashCommand(command: "/agent", label: "Toggle agent mode", icon: "brain"),
         SlashCommand(command: "/clipboard", label: "Read clipboard", icon: "doc.on.clipboard"),
         SlashCommand(command: "/watch", label: "Watch a directory", icon: "eye"),
-        SlashCommand(command: "/system", label: "System info", icon: "desktopcomputer"),
+        SlashCommand(command: "/system", label: "System info & control", icon: "desktopcomputer"),
         SlashCommand(command: "/dark", label: "Toggle dark mode", icon: "moon"),
         SlashCommand(command: "/goals", label: "View goals & daily actions", icon: "target"),
         SlashCommand(command: "/email", label: "Check email inbox", icon: "envelope"),
@@ -117,6 +117,16 @@ final class AppState {
         SlashCommand(command: "/browser", label: "Current browser tab", icon: "safari"),
         SlashCommand(command: "/project", label: "Analyze current project", icon: "folder.badge.gearshape"),
         SlashCommand(command: "/skills", label: "List available skills", icon: "wand.and.stars"),
+        SlashCommand(command: "/screenshot", label: "Capture screen or window", icon: "camera.viewfinder"),
+        SlashCommand(command: "/contacts", label: "Search contacts", icon: "person.crop.circle"),
+        SlashCommand(command: "/notes", label: "Read or create Apple Notes", icon: "note.text"),
+        SlashCommand(command: "/reminders", label: "View or create reminders", icon: "checklist"),
+        SlashCommand(command: "/finder", label: "File management", icon: "folder"),
+        SlashCommand(command: "/apps", label: "Launch or quit apps", icon: "app.badge"),
+        SlashCommand(command: "/music", label: "Control music playback", icon: "music.note"),
+        SlashCommand(command: "/shortcuts", label: "Run Apple Shortcuts", icon: "bolt.circle"),
+        SlashCommand(command: "/volume", label: "Get or set volume", icon: "speaker.wave.3"),
+        SlashCommand(command: "/battery", label: "Battery status", icon: "battery.100"),
     ]
 
     var filteredSlashCommands: [SlashCommand] {
@@ -192,7 +202,7 @@ final class AppState {
         tools.register(RemindersTool())
         tools.register(NotesTool())
 
-        // Register new killer tools
+        // Register integration tools
         tools.register(EmailTool())
         tools.register(CalendarTool())
         tools.register(BrowserTool())
@@ -200,6 +210,15 @@ final class AppState {
         tools.register(DataExportTool())
         tools.register(GoalTool(store: goalStore))
         tools.register(AutoSkillCreatorTool())
+
+        // Register macOS power tools
+        tools.register(ScreenshotTool())
+        tools.register(SystemControlTool())
+        tools.register(ContactsTool())
+        tools.register(FinderTool())
+        tools.register(AppLauncherTool())
+        tools.register(MusicTool())
+        tools.register(ShortcutsTool())
 
         // Start sensory ambient loop (screen capture + OCR every 15s)
         // This is non-fatal -- if screen capture permission is denied, it degrades gracefully
@@ -224,28 +243,48 @@ final class AppState {
     private var systemPrompt: String {
         let context = worldModel.contextString()
         var prompt = """
-        You are Dockwright, a powerful macOS AI assistant — smarter, faster, and more capable than any other. You have access to tools that let you:
-        - Run shell commands on the user's Mac
-        - Read and write files
-        - Search the web
-        - Set reminders and schedule recurring tasks (cron jobs, one-shot reminders)
-        - See what's on the user's screen (ambient screen capture + OCR)
-        - Know which apps and browser tabs are open
-        - Analyze images (vision tool) — users can drop/paste images into chat
-        - Read and write the system clipboard
-        - Control macOS: open apps, toggle dark mode, set volume, get system info
-        - Watch directories for file changes
-        - Export conversations as Markdown or PDF
-        - Save and recall persistent memories about the user
-        - Read and manage emails via Mail.app (read inbox, draft replies, send emails, search)
-        - Access calendar events (today's schedule, upcoming events, create events)
-        - Control the browser (get current tab, list all tabs, open URLs, read page content)
-        - Understand project context (git status, log, diff, project structure, find files)
+        You are Dockwright, the most powerful macOS AI assistant ever built. You have deep integration with every part of macOS through these tools:
+
+        COMMUNICATION:
+        - Read and manage emails via Mail.app (inbox, draft, reply, send, search)
+        - Search and browse contacts (name, email, phone, birthdays)
+        - Read and create Apple Notes (list, read, create, search, delete)
+        - Manage Apple Reminders (create, complete, delete, overdue, lists)
+
+        PRODUCTIVITY:
+        - Access calendar events (today, upcoming, create, search, delete)
+        - Track goals with milestones and daily action items
+        - Schedule recurring tasks and one-shot reminders (cron jobs)
+        - Run Apple Shortcuts by name with custom input
+        - Create and manage reusable AI skills (teach yourself new capabilities)
         - Export structured data (CSV, JSON, HTML reports) to Desktop
-        - Track goals and generate daily action items (brain dump → structured goals → daily tasks)
-        - Create and manage reusable AI skills (the AI can teach itself new capabilities)
-        - Run multiple agent tasks in parallel (like Manus AI)
-        - Deliver notifications across channels (Notification Center, Telegram, Discord)
+
+        SYSTEM CONTROL:
+        - Control volume, brightness, Wi-Fi, Bluetooth, dark mode, Do Not Disturb
+        - Get battery status, system info (CPU, memory, disk, uptime)
+        - Put display to sleep, lock screen
+        - Launch, quit, force-quit, hide, and activate any app
+        - Capture screenshots (full screen, window, or selection)
+        - Read and write the system clipboard
+
+        FILES & CODE:
+        - Advanced file management (move, copy, rename, trash, compress, decompress)
+        - Spotlight search (mdfind) for finding anything on the Mac
+        - Run shell commands, read/write files
+        - Git integration (status, log, diff, branch, project structure)
+        - Watch directories for file changes
+
+        MEDIA & BROWSER:
+        - Control Music.app and Spotify (play, pause, skip, search, volume, queue)
+        - Control Safari and Chrome (tabs, navigate, read pages, search web)
+        - See what's on the user's screen (ambient screen capture + OCR)
+        - Analyze images (vision tool) — users can drop/paste images into chat
+
+        INTELLIGENCE:
+        - Save and recall persistent memories about the user
+        - Run multiple agent tasks in parallel
+        - Deliver notifications via macOS, Telegram, and Discord
+        - Brain dump → structured goals → daily tasks pipeline
 
         Current context:
         \(context)
@@ -621,6 +660,26 @@ final class AppState {
             await sendMessage("Analyze the current project structure and git status")
         case "/skills":
             await sendMessage("List all available skills")
+        case "/screenshot":
+            await sendMessage("Take a screenshot of my screen")
+        case "/contacts":
+            await sendMessage("Search my contacts")
+        case "/notes":
+            await sendMessage("List my recent Apple Notes")
+        case "/reminders":
+            await sendMessage("Show my reminders and any overdue items")
+        case "/finder":
+            await sendMessage("Show me the contents of my Desktop")
+        case "/apps":
+            await sendMessage("List my currently running apps")
+        case "/music":
+            await sendMessage("What's currently playing?")
+        case "/shortcuts":
+            await sendMessage("List my available Apple Shortcuts")
+        case "/volume":
+            await sendMessage("What's my current volume level?")
+        case "/battery":
+            await sendMessage("Show my battery status")
         default:
             appendError("Unknown command: \(command)")
         }

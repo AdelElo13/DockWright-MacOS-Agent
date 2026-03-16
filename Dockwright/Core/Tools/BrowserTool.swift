@@ -1,7 +1,7 @@
 import Foundation
 import os
 
-private let logger = Logger(subsystem: "com.dockwright", category: "BrowserTool")
+nonisolated private let logger = Logger(subsystem: "com.dockwright", category: "BrowserTool")
 
 /// LLM tool for controlling Safari and Chrome via AppleScript.
 /// Actions: current_tab, all_tabs, open_url, read_page, search_web, screenshot_page.

@@ -1,7 +1,7 @@
 import Foundation
 import os
 
-private let logger = Logger(subsystem: "com.dockwright", category: "EmailTool")
+nonisolated private let logger = Logger(subsystem: "com.dockwright", category: "EmailTool")
 
 /// LLM tool for interacting with Mail.app via AppleScript.
 /// Actions: read_inbox, read_email, draft_reply, send_email, search_email, unread_count.

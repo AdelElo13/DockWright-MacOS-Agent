@@ -2,7 +2,7 @@ import Foundation
 import EventKit
 import os
 
-private let logger = Logger(subsystem: "com.dockwright", category: "CalendarTool")
+nonisolated private let logger = Logger(subsystem: "com.dockwright", category: "CalendarTool")
 
 /// LLM tool for interacting with Calendar via EventKit.
 /// Actions: today, upcoming, create_event, search_events, delete_event.
