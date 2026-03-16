@@ -115,6 +115,17 @@ struct SidebarView: View {
                 }
             }
 
+            sidebarButton(icon: "wand.and.stars", label: "Skills & Automations") {
+                showSkillsAutomations = true
+            } badge: {
+                let skillCount = appState.skillLoader.allSkills.count
+                if skillCount > 0 {
+                    Text("\(skillCount)")
+                        .font(DockwrightTheme.Typography.captionMono)
+                        .foregroundStyle(.tertiary)
+                }
+            }
+
             sidebarButton(icon: "clock.arrow.circlepath", label: "Scheduler") {
                 appState.showScheduler.toggle()
             } badge: {
@@ -145,6 +156,10 @@ struct SidebarView: View {
         }
         .frame(maxHeight: .infinity)
         .background(DockwrightTheme.Surface.sidebar)
+        .sheet(isPresented: $showSkillsAutomations) {
+            SkillsAutomationsView(appState: appState)
+                .frame(minWidth: 560, minHeight: 520)
+        }
     }
 
     // MARK: - Conversation Row
