@@ -4,7 +4,7 @@ import os
 // LLMProvider, LLMModelInfo, and LLMModels are defined in LLMModels.swift
 
 /// Multi-provider streaming LLM client.
-/// Supports Anthropic, OpenAI, and Ollama (OpenAI-compatible).
+/// Supports Anthropic, OpenAI, Google Gemini, xAI, Mistral, DeepSeek, Kimi, and Ollama.
 /// Uses `URLSession.bytes(for:)` for SSE parsing — no AsyncStream.
 final class LLMService: @unchecked Sendable {
     private let session: URLSession
@@ -14,8 +14,34 @@ final class LLMService: @unchecked Sendable {
         config.timeoutIntervalForRequest = 30   // 30s connection timeout
         config.timeoutIntervalForResource = 180 // 180s total streaming timeout
         config.waitsForConnectivity = true
-        config.timeoutIntervalForResource = 180
         self.session = URLSession(configuration: config)
+    }
+
+    // MARK: - Anthropic Auth Helpers
+
+    /// Whether the given key is a regular Anthropic API key (sk-ant-api...).
+    /// Claude Code OAuth tokens start with sk-ant-oat → must use Bearer, NOT x-api-key.
+    nonisolated static func isApiKey(_ apiKey: String) -> Bool {
+        guard apiKey.hasPrefix("sk-") else { return false }
+        if apiKey.hasPrefix("sk-ant-oat") { return false }
+        return true
+    }
+
+    /// Whether the given API key is an OAuth/Bearer token (needs oauth-2025-04-20 beta header).
+    nonisolated static func isOAuthToken(_ apiKey: String) -> Bool {
+        !apiKey.isEmpty && !isApiKey(apiKey)
+    }
+
+    /// Applies the correct auth headers for Anthropic API calls.
+    /// API keys use x-api-key; OAuth tokens use Authorization: Bearer.
+    private func applyAnthropicAuth(_ request: inout URLRequest, apiKey: String) {
+        if Self.isApiKey(apiKey) {
+            request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
+            request.setValue(nil, forHTTPHeaderField: "Authorization")
+        } else {
+            request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+            request.setValue(nil, forHTTPHeaderField: "x-api-key")
+        }
     }
 
     // MARK: - Streaming Chat (Multi-Provider Router)
@@ -129,9 +155,17 @@ final class LLMService: @unchecked Sendable {
         }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
-        request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
+        request.timeoutInterval = 200
+
+        // Apply correct auth: API key → x-api-key, OAuth → Authorization: Bearer
+        applyAnthropicAuth(&request, apiKey: apiKey)
         request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
         request.setValue("application/json", forHTTPHeaderField: "content-type")
+
+        // OAuth tokens require the oauth beta flag
+        var betaFeatures = "prompt-caching-2024-07-31"
+        if Self.isOAuthToken(apiKey) { betaFeatures += ",oauth-2025-04-20" }
+        request.setValue(betaFeatures, forHTTPHeaderField: "anthropic-beta")
 
         var body: [String: Any] = [
             "model": model,
