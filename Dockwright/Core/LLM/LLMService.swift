@@ -23,7 +23,7 @@ final class LLMService: @unchecked Sendable {
     func streamChat(
         messages: [LLMMessage],
         tools: [[String: Any]]? = nil,
-        model: String = "claude-sonnet-4-20250514",
+        model: String = "claude-opus-4-6",
         apiKey: String,
         systemPrompt: String = "",
         onChunk: @escaping @Sendable (StreamChunk) -> Void
@@ -363,6 +363,11 @@ final class LLMService: @unchecked Sendable {
             if let content = delta["content"] as? String {
                 fullText += content
                 onChunk(.textDelta(content))
+            }
+
+            // Reasoning content (DeepSeek reasoner emits this field)
+            if let reasoning = delta["reasoning_content"] as? String, !reasoning.isEmpty {
+                onChunk(.thinking(reasoning))
             }
 
             // Tool calls

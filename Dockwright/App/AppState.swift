@@ -15,7 +15,7 @@ final class AppState {
     var currentActivity: StreamActivity?
 
     // Settings
-    var selectedModel = "claude-sonnet-4-20250514"
+    var selectedModel = "claude-opus-4-6"
     var showSidebar = true
     var showSettings = false
 

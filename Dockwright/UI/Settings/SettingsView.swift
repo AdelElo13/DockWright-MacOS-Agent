@@ -37,9 +37,9 @@ struct SettingsView: View {
                     Label("About", systemImage: "info.circle")
                 }
         }
-            .frame(width: 520, height: 400)
+            .frame(width: 560, height: 480)
         }
-        .frame(width: 520, height: 440)
+        .frame(width: 560, height: 520)
     }
 
     private var aboutView: some View {
@@ -73,74 +73,150 @@ struct SettingsView: View {
 // MARK: - Model Settings
 
 struct ModelSettingsView: View {
-    @State private var selectedModel = UserDefaults.standard.string(forKey: "selectedModel") ?? "claude-sonnet-4-20250514"
-    @State private var ollamaModels: [String] = []
-    @State private var isCheckingOllama = false
+    @State private var selectedModel = UserDefaults.standard.string(forKey: "selectedModel") ?? "claude-opus-4-6"
+    @State private var isRefreshing = false
+    @State private var refreshStatus = ""
+    @State private var modelsByProvider: [LLMProvider: [LLMModelInfo]] = [:]
+
+    /// Provider display order.
+    private let providerOrder: [LLMProvider] = [
+        .anthropic, .openai, .google, .xai, .mistral, .deepseek, .kimi, .ollama
+    ]
 
     var body: some View {
-        Form {
-            Section("Default Model") {
-                Picker("Model", selection: $selectedModel) {
-                    ForEach(LLMModels.allModels, id: \.id) { model in
-                        Text("\(model.displayName) (\(model.provider.rawValue))")
-                            .tag(model.id)
-                    }
-
-                    if !ollamaModels.isEmpty {
-                        Divider()
-                        ForEach(ollamaModels, id: \.self) { model in
-                            Text("\(model) (Ollama)")
-                                .tag(model)
+        ScrollView {
+            Form {
+                Section("Default Model") {
+                    Picker("Model", selection: $selectedModel) {
+                        ForEach(providerOrder, id: \.self) { provider in
+                            let models = modelsByProvider[provider] ?? []
+                            if !models.isEmpty {
+                                ForEach(models) { model in
+                                    Text("\(model.displayName) (\(provider.rawValue))")
+                                        .tag(model.id)
+                                }
+                            }
                         }
                     }
-                }
-                .onChange(of: selectedModel) { _, newValue in
-                    UserDefaults.standard.set(newValue, forKey: "selectedModel")
-                }
-            }
-
-            Section("Ollama (Local)") {
-                HStack {
-                    Text("Auto-detect local models from Ollama")
-                        .font(DockwrightTheme.Typography.caption)
-                        .foregroundStyle(.secondary)
-
-                    Spacer()
-
-                    Button("Refresh") {
-                        refreshOllama()
+                    .onChange(of: selectedModel) { _, newValue in
+                        UserDefaults.standard.set(newValue, forKey: "selectedModel")
                     }
-                    .disabled(isCheckingOllama)
                 }
 
-                if !ollamaModels.isEmpty {
-                    ForEach(ollamaModels, id: \.self) { model in
+                Section("Model Registry") {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Fetch available models from all configured providers")
+                                .font(DockwrightTheme.Typography.caption)
+                                .foregroundStyle(.secondary)
+
+                            if !refreshStatus.isEmpty {
+                                Text(refreshStatus)
+                                    .font(DockwrightTheme.Typography.caption)
+                                    .foregroundStyle(DockwrightTheme.success)
+                            }
+                        }
+
+                        Spacer()
+
+                        Button {
+                            refreshAllModels()
+                        } label: {
+                            HStack(spacing: 4) {
+                                if isRefreshing {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                }
+                                Text("Refresh Models")
+                            }
+                        }
+                        .disabled(isRefreshing)
+                    }
+                }
+
+                // Per-provider model lists
+                ForEach(providerOrder, id: \.self) { provider in
+                    let models = modelsByProvider[provider] ?? []
+                    let hasKey = providerHasKey(provider)
+
+                    Section {
                         HStack {
-                            Circle()
-                                .fill(DockwrightTheme.success)
-                                .frame(width: 6, height: 6)
-                            Text(model)
-                                .font(DockwrightTheme.Typography.body)
+                            Text(provider.rawValue)
+                                .font(DockwrightTheme.Typography.bodyMedium)
+                            Spacer()
+                            if hasKey || provider == .ollama {
+                                Text("\(models.count) models")
+                                    .font(DockwrightTheme.Typography.caption)
+                                    .foregroundStyle(.secondary)
+                                if hasKey {
+                                    Circle()
+                                        .fill(DockwrightTheme.success)
+                                        .frame(width: 6, height: 6)
+                                }
+                            } else {
+                                Text("No API key")
+                                    .font(DockwrightTheme.Typography.caption)
+                                    .foregroundStyle(.tertiary)
+                            }
+                        }
+
+                        if !models.isEmpty {
+                            ForEach(models) { model in
+                                HStack {
+                                    Circle()
+                                        .fill(model.id == selectedModel ? DockwrightTheme.primary : DockwrightTheme.success.opacity(0.5))
+                                        .frame(width: 6, height: 6)
+                                    Text(model.displayName)
+                                        .font(DockwrightTheme.Typography.body)
+                                    Spacer()
+                                    Text(model.id)
+                                        .font(DockwrightTheme.Typography.captionMono)
+                                        .foregroundStyle(.tertiary)
+                                        .lineLimit(1)
+                                }
+                            }
                         }
                     }
-                } else {
-                    Text("No Ollama models detected. Make sure Ollama is running.")
-                        .font(DockwrightTheme.Typography.caption)
-                        .foregroundStyle(.tertiary)
                 }
             }
+            .formStyle(.grouped)
         }
-        .formStyle(.grouped)
-        .onAppear { refreshOllama() }
+        .onAppear { loadModels() }
     }
 
-    private func refreshOllama() {
-        isCheckingOllama = true
-        Task {
-            let models = await LLMService().fetchOllamaModels()
-            ollamaModels = models
-            isCheckingOllama = false
+    private func loadModels() {
+        var grouped: [LLMProvider: [LLMModelInfo]] = [:]
+        for model in ModelRegistry.shared.allModels {
+            grouped[model.provider, default: []].append(model)
         }
+        modelsByProvider = grouped
+    }
+
+    private func refreshAllModels() {
+        isRefreshing = true
+        refreshStatus = ""
+        Task {
+            let count = await ModelRegistry.shared.refreshAll()
+            isRefreshing = false
+            refreshStatus = "Fetched \(count) models"
+            loadModels()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                refreshStatus = ""
+            }
+        }
+    }
+
+    private func providerHasKey(_ provider: LLMProvider) -> Bool {
+        if provider == .ollama { return true }
+        if provider == .anthropic {
+            return KeychainHelper.exists(key: "anthropic_api_key") ||
+                   KeychainHelper.exists(key: "claude_oauth_token")
+        }
+        if provider == .openai {
+            return KeychainHelper.exists(key: "openai_api_key") ||
+                   KeychainHelper.exists(key: "openai_oauth_token")
+        }
+        return KeychainHelper.exists(key: provider.keychainKey)
     }
 }
 
