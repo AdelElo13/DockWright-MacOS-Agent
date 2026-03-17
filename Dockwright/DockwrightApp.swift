@@ -38,7 +38,7 @@ struct DockwrightApp: App {
         }
 
         // Menu bar icon — respect showMenuBarExtra preference
-        MenuBarExtra("Dockwright", systemImage: "brain.head.profile", isInserted: menuBarInserted) {
+        MenuBarExtra("Dockwright", systemImage: "circle.hexagongrid.circle", isInserted: menuBarInserted) {
             menuBarContent
         }
     }

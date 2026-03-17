@@ -192,10 +192,13 @@ final class AppPreferences {
     }
 
     /// Returns true if ANY LLM provider that requires a real credential is configured.
-    /// Gates onboarding — once any keyed provider is configured, the user is past Welcome.
-    /// Ollama is excluded: it needs no key and would make this always-true.
-    /// Ollama is still usable once the user is past onboarding and explicitly selects an Ollama model.
+    /// Gates onboarding — once any provider is configured, the user is past Welcome.
+    /// Ollama counts if the user explicitly selected an Ollama model (not just as a silent fallback).
     func hasAnyConfiguredProvider(authManager: AuthManager) -> Bool {
+        // If user explicitly chose Ollama, they're past onboarding
+        if LLMModels.provider(for: selectedModel) == .ollama {
+            return true
+        }
         let keyedProviders: [LLMProvider] = [.anthropic, .openai, .google, .xai, .mistral, .deepseek, .kimi]
         return keyedProviders.contains { isProviderConfigured($0, authManager: authManager) }
     }

@@ -206,9 +206,10 @@ actor AIToAIServer {
 
         let executionMs = Int(Date().timeIntervalSince(startTime) * 1000)
 
-        sendJSONResponse(connection: connection, statusCode: 200, json: [
-            "status": "success",
-            "result": response,
+        let isError = response.hasPrefix("Error:")
+        sendJSONResponse(connection: connection, statusCode: isError ? 502 : 200, json: [
+            "status": isError ? "error" : "success",
+            isError ? "error" : "result": response,
             "execution_time_ms": executionMs,
             "request_id": requestId
         ])

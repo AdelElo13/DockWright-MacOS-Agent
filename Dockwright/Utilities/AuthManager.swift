@@ -22,9 +22,9 @@ final class AuthManager: NSObject, @unchecked Sendable {
 
     private let claudeClientId = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
     private let claudeAuthorizeURL = "https://claude.ai/oauth/authorize"
-    private let claudeTokenURL = "https://console.anthropic.com/v1/oauth/token"
-    private let claudeRedirectURI = "https://console.anthropic.com/oauth/code/callback"
-    private let claudeScopes = "org:create_api_key user:profile user:inference"
+    private let claudeTokenURL = "https://platform.claude.com/v1/oauth/token"
+    private let claudeRedirectURI = "https://platform.claude.com/oauth/code/callback"
+    private let claudeScopes = "user:profile user:inference user:sessions:claude_code user:mcp_servers"
 
     private let openaiClientId = "app_EMoamEEZ73f0CkXaXp7hrann"
     private let openaiAuthorizeURL = "https://auth.openai.com/oauth/authorize"
@@ -347,7 +347,7 @@ final class AuthManager: NSObject, @unchecked Sendable {
         }
 
         let clientId = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
-        let tokenURL = "https://console.anthropic.com/v1/oauth/token"
+        let tokenURL = "https://platform.claude.com/v1/oauth/token"
 
         let params: [(String, String)] = [
             ("grant_type", "refresh_token"),

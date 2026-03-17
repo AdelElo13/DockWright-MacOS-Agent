@@ -49,6 +49,8 @@ final class AppState {
 
     // Memory
     let memoryStore = MemoryStore()
+    private(set) var memoryFormation: MemoryFormation!
+    let errorMemory = ErrorMemoryBank.shared
 
     // Auth
     let authManager = AuthManager()
@@ -251,8 +253,9 @@ final class AppState {
         // Set up memory -- failure is non-fatal, app works without it
         do {
             try memoryStore.setup()
+            memoryFormation = MemoryFormation(store: memoryStore)
             tools.register(MemoryTool(store: memoryStore))
-            log.info("[Memory] Memory store initialized successfully")
+            log.info("[Memory] Memory store + auto-formation initialized")
         } catch {
             log.error("[Memory] Failed to initialize (non-fatal, memory features disabled): \(error.localizedDescription)")
         }
@@ -439,6 +442,12 @@ final class AppState {
             prompt += skillsFragment
         }
 
+        // Inject error memory (tool mistakes to avoid)
+        let errorHints = errorMemory.systemPromptFragment()
+        if !errorHints.isEmpty {
+            prompt += errorHints
+        }
+
         // Custom system prompt from advanced settings
         let custom = prefs.customSystemPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
         if !custom.isEmpty {
@@ -463,26 +472,44 @@ final class AppState {
 
         guard let key = currentAPIKey, !key.isEmpty else { return nil }
 
-        // OAuth token refresh: only attempt if we have a valid refresh token AND expiry
-        // If the token works (no 401 from Anthropic), no refresh is needed
-        if LLMService.isOAuthToken(key),
-           let expiresStr = KeychainHelper.read(key: "claude_token_expires"),
-           let expiresEpoch = Int(expiresStr) {
-            let expiresAt = Date(timeIntervalSince1970: Double(expiresEpoch))
-            if Date() >= expiresAt,
-               KeychainHelper.exists(key: "claude_refresh_token"),
-               Date().timeIntervalSince(_lastRefreshFailure) >= _refreshFailureCooldown {
-                if let freshToken = await AuthManager.refreshClaudeOAuthToken() {
-                    KeychainHelper.save(key: "anthropic_api_key", value: freshToken)
-                    KeychainHelper.save(key: "claude_oauth_token", value: freshToken)
-                    AuthManager.invalidateOAuthCache()
-                    return freshToken
-                } else {
-                    _lastRefreshFailure = Date()
-                    // Delete stale expiry so we stop trying on every launch
-                    KeychainHelper.delete(key: "claude_token_expires")
+        // Provider-specific OAuth token refresh
+        switch provider {
+        case .anthropic:
+            if LLMService.isOAuthToken(key),
+               let expiresStr = KeychainHelper.read(key: "claude_token_expires"),
+               let expiresEpoch = Int(expiresStr) {
+                let expiresAt = Date(timeIntervalSince1970: Double(expiresEpoch))
+                if Date() >= expiresAt,
+                   KeychainHelper.exists(key: "claude_refresh_token"),
+                   Date().timeIntervalSince(_lastRefreshFailure) >= _refreshFailureCooldown {
+                    if let freshToken = await AuthManager.refreshClaudeOAuthToken() {
+                        KeychainHelper.save(key: "anthropic_api_key", value: freshToken)
+                        KeychainHelper.save(key: "claude_oauth_token", value: freshToken)
+                        AuthManager.invalidateOAuthCache()
+                        return freshToken
+                    } else {
+                        _lastRefreshFailure = Date()
+                        KeychainHelper.delete(key: "claude_token_expires")
+                    }
                 }
             }
+        case .openai:
+            if let expiresStr = KeychainHelper.read(key: "openai_token_expires"),
+               let expiresEpoch = Int(expiresStr) {
+                let expiresAt = Date(timeIntervalSince1970: Double(expiresEpoch))
+                if Date() >= expiresAt,
+                   KeychainHelper.exists(key: "openai_refresh_token"),
+                   Date().timeIntervalSince(_lastRefreshFailure) >= _refreshFailureCooldown {
+                    if await authManager.refreshOpenAITokenIfNeeded() {
+                        AuthManager.invalidateOAuthCache()
+                        return authManager.openaiApiKey
+                    } else {
+                        _lastRefreshFailure = Date()
+                    }
+                }
+            }
+        default:
+            break
         }
         return key
     }
@@ -534,6 +561,7 @@ final class AppState {
     }
 
     private func runLLMLoop(apiKey: String, assistantIndex: Int, images: [ImageContent]? = nil) async {
+        var apiKey = apiKey
         var llmMessages = buildLLMMessages(images: images)
         let maxRetries = 3
         var retryCount = 0
@@ -601,6 +629,17 @@ final class AppState {
 
                         let result = await toolExecutor.executeTool(name: tc.function.name, arguments: args)
 
+                        // Record tool errors so we don't repeat the same mistakes
+                        if result.isError {
+                            errorMemory.record(toolName: tc.function.name, arguments: args, errorOutput: result.output)
+                        }
+
+                        // Inject error memory hints into tool result so LLM learns
+                        var enrichedOutput = result.output
+                        if result.isError, let hints = errorMemory.hintsForTool(tc.function.name, arguments: args) {
+                            enrichedOutput += "\n\n" + hints
+                        }
+
                         // Add tool output to UI (bounds-checked)
                         let toolOutput = ToolOutput(
                             toolName: tc.function.name,
@@ -611,8 +650,8 @@ final class AppState {
                             currentConversation.messages[assistantIndex].toolOutputs.append(toolOutput)
                         }
 
-                        // Add tool result to LLM messages
-                        llmMessages.append(.tool(callId: tc.id, content: result.output))
+                        // Add tool result to LLM messages (with hints if error)
+                        llmMessages.append(.tool(callId: tc.id, content: enrichedOutput))
                     }
 
                     // Refresh sidebar badges (goals/jobs may have changed via tools)
@@ -629,7 +668,29 @@ final class AppState {
 
             } catch let error as URLError where error.code == .notConnectedToInternet || error.code == .networkConnectionLost {
                 if Task.isCancelled { break }
-                appendError("No internet connection. Check your network and try again.")
+                // Preserve any partial streaming content before showing error
+                if !streamingText.isEmpty, assistantIndex < currentConversation.messages.count {
+                    currentConversation.messages[assistantIndex].content = streamingText + "\n\n⚠️ [Connection lost — partial response preserved]"
+                    currentConversation.messages[assistantIndex].isStreaming = false
+                } else {
+                    appendError("No internet connection. Check your network and try again.")
+                }
+                break
+            } catch LLMError.unauthorized {
+                if Task.isCancelled { break }
+                // Token expired mid-request — refresh and retry once
+                log.info("[LLM] 401 Unauthorized — refreshing token and retrying")
+                AuthManager.invalidateOAuthCache()
+                if await authManager.refreshClaudeTokenIfNeeded(),
+                   let freshKey = await ensureFreshAPIKey() {
+                    apiKey = freshKey
+                    streamingText = ""
+                    if assistantIndex < currentConversation.messages.count {
+                        currentConversation.messages[assistantIndex].content = ""
+                    }
+                    continue // Retry with fresh token
+                }
+                appendError("Session expired. Please sign in again.")
                 break
             } catch let error as LLMError where error.isRetryable {
                 if Task.isCancelled { break }
@@ -640,11 +701,23 @@ final class AppState {
                     try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
                     continue
                 }
-                appendError("Failed after \(maxRetries) retries: \(error.localizedDescription)")
+                // Preserve partial content on final retry failure
+                if !streamingText.isEmpty, assistantIndex < currentConversation.messages.count {
+                    currentConversation.messages[assistantIndex].content = streamingText + "\n\n⚠️ [Stream interrupted — partial response preserved]"
+                    currentConversation.messages[assistantIndex].isStreaming = false
+                } else {
+                    appendError("Failed after \(maxRetries) retries: \(error.localizedDescription)")
+                }
                 break
             } catch {
                 if Task.isCancelled { break }
-                appendError(error.localizedDescription)
+                // Preserve partial content on any error
+                if !streamingText.isEmpty, assistantIndex < currentConversation.messages.count {
+                    currentConversation.messages[assistantIndex].content = streamingText + "\n\n⚠️ [Error: \(error.localizedDescription) — partial response preserved]"
+                    currentConversation.messages[assistantIndex].isStreaming = false
+                } else {
+                    appendError(error.localizedDescription)
+                }
                 break
             }
         }
@@ -667,6 +740,9 @@ final class AppState {
                 speakResponse(responseText)
             }
         }
+
+        // Auto-extract facts from user messages
+        memoryFormation?.processLastUserMessage(in: currentConversation.messages)
 
         // Save conversation (respect privacy setting)
         currentConversation.touch()

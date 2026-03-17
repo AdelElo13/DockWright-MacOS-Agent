@@ -136,13 +136,21 @@ struct WelcomeView: View {
                     Text("Mistral").tag(LLMProvider.mistral)
                     Text("DeepSeek").tag(LLMProvider.deepseek)
                     Text("Kimi (Moonshot)").tag(LLMProvider.kimi)
+                    Text("Ollama (Local)").tag(LLMProvider.ollama)
                 }
                 .pickerStyle(.menu)
                 .frame(maxWidth: 400)
 
-                SecureField("Paste API key...", text: $apiKey)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(maxWidth: 400)
+                if selectedProvider == .ollama {
+                    Text("No API key needed — make sure Ollama is running on localhost:11434")
+                        .font(DockwrightTheme.Typography.caption)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: 400)
+                } else {
+                    SecureField("Paste API key...", text: $apiKey)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(maxWidth: 400)
+                }
 
                 if !errorMessage.isEmpty {
                     Text(errorMessage)
@@ -165,11 +173,10 @@ struct WelcomeView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(DockwrightTheme.primary)
-                .disabled(apiKey.trimmingCharacters(in: .whitespaces).isEmpty || isSaving)
+                .disabled(selectedProvider != .ollama && (apiKey.trimmingCharacters(in: .whitespaces).isEmpty || isSaving))
 
-                if let keyURL = URL(string: "https://console.anthropic.com/settings/keys") {
-                    Link("Get an API key at console.anthropic.com",
-                         destination: keyURL)
+                if let (label, urlStr) = providerKeyLink, let keyURL = URL(string: urlStr) {
+                    Link(label, destination: keyURL)
                         .font(DockwrightTheme.Typography.caption)
                         .foregroundStyle(DockwrightTheme.info)
                 }
@@ -195,12 +202,39 @@ struct WelcomeView: View {
         }
     }
 
-    private func saveKey() {
-        let trimmed = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
+    /// Provider-aware link to get an API key.
+    private var providerKeyLink: (String, String)? {
+        switch selectedProvider {
+        case .anthropic: return ("Get an API key at console.anthropic.com", "https://console.anthropic.com/settings/keys")
+        case .openai:    return ("Get an API key at platform.openai.com", "https://platform.openai.com/api-keys")
+        case .google:    return ("Get an API key at aistudio.google.com", "https://aistudio.google.com/app/apikey")
+        case .xai:       return ("Get an API key at console.x.ai", "https://console.x.ai/")
+        case .mistral:   return ("Get an API key at console.mistral.ai", "https://console.mistral.ai/api-keys")
+        case .deepseek:  return ("Get an API key at platform.deepseek.com", "https://platform.deepseek.com/api_keys")
+        case .kimi:      return ("Get an API key at platform.moonshot.cn", "https://platform.moonshot.cn/console/api-keys")
+        case .ollama:    return ("Download Ollama at ollama.com", "https://ollama.com/download")
+        }
+    }
 
+    private func saveKey() {
         isSaving = true
         errorMessage = ""
+
+        if selectedProvider == .ollama {
+            // No key needed — just select an Ollama model
+            if let firstModel = LLMModels.allModels.first(where: { LLMModels.provider(for: $0.id) == .ollama }) {
+                AppPreferences.shared.selectedModel = firstModel.id
+            }
+            isSaving = false
+            onComplete()
+            return
+        }
+
+        let trimmed = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            isSaving = false
+            return
+        }
 
         // Save to the correct keychain key for the chosen provider (bumps keychainVersion)
         authManager.saveKey(selectedProvider.keychainKey, value: trimmed)

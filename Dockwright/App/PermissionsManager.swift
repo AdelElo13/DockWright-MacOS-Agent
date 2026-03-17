@@ -56,11 +56,16 @@ final class PermissionsManager {
 
     /// Request all critical permissions that haven't been determined yet.
     /// Called at startup to trigger native system dialogs automatically.
+    /// Requests are staggered so system dialogs don't pile up.
     func requestAllUndetermined() {
-        for type in PermissionType.allCases {
-            let status = checkStatus(type)
-            if status == .notDetermined {
-                Task { await request(type) }
+        Task {
+            for type in PermissionType.allCases {
+                let status = checkStatus(type)
+                if status == .notDetermined {
+                    await request(type)
+                    // Brief pause so system dialogs don't stack
+                    try? await Task.sleep(nanoseconds: 500_000_000)
+                }
             }
         }
     }

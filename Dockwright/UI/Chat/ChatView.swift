@@ -301,24 +301,13 @@ struct ChatView: View {
         VStack(spacing: DockwrightTheme.Spacing.xxl) {
             Spacer()
 
-            // Logo orb
-            ZStack {
-                Circle()
-                    .fill(DockwrightTheme.orbGradient)
-                    .frame(width: 60, height: 60)
-                    .blur(radius: 1)
-
-                Circle()
-                    .fill(
-                        RadialGradient(
-                            colors: [.white.opacity(0.3), .clear],
-                            center: .topLeading,
-                            startRadius: 0,
-                            endRadius: 30
-                        )
-                    )
-                    .frame(width: 48, height: 48)
-            }
+            // App icon helm
+            Image(nsImage: NSApp.applicationIconImage)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(width: 64, height: 64)
+                .clipShape(RoundedRectangle(cornerRadius: 14))
+                .shadow(color: DockwrightTheme.primary.opacity(0.3), radius: 12, y: 4)
 
             Text(EmptyStateStrings.title)
                 .font(DockwrightTheme.Typography.displayMedium)

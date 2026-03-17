@@ -6,15 +6,15 @@ enum DockwrightTheme {
 
     // MARK: - Semantic Color Tokens
 
-    static let primary = Color(hex: 0x6366F1)
-    static let secondary = Color(hex: 0x8B5CF6)
-    static let accent = Color(hex: 0x10B981)
+    static let primary = Color(hex: 0x0891B2)      // teal-600 — matches app icon
+    static let secondary = Color(hex: 0x0E7490)     // teal-700
+    static let accent = Color(hex: 0x10B981)         // emerald
 
     // State Colors
     static let success = Color(hex: 0x10B981)
     static let error = Color(hex: 0xEF4444)
     static let caution = Color(hex: 0xF59E0B)
-    static let info = Color(hex: 0x3B82F6)
+    static let info = Color(hex: 0x0891B2)
     static let warmth = Color(hex: 0xEC4899)
     static let communication = Color(hex: 0x06B6D4)
 
@@ -32,9 +32,10 @@ enum DockwrightTheme {
         endPoint: .trailing
     )
 
-    static let orbGradient = AngularGradient(
-        colors: [primary, secondary, warmth, caution, success, info, primary],
-        center: .center
+    static let orbGradient = LinearGradient(
+        colors: [Color(hex: 0x0694A2), Color(hex: 0x0C4A6E)],
+        startPoint: .topLeading,
+        endPoint: .bottomTrailing
     )
 
     // MARK: - Chat Bubble
@@ -46,7 +47,7 @@ enum DockwrightTheme {
     )
 
     static let assistantAvatarGradient = LinearGradient(
-        colors: [Color(hex: 0x4DA8DA), Color(hex: 0x357ABD)],
+        colors: [Color(hex: 0x0891B2), Color(hex: 0x0E7490)],
         startPoint: .topLeading,
         endPoint: .bottomTrailing
     )

@@ -239,9 +239,20 @@ final class LLMService: @unchecked Sendable {
 
         let isOAuth = Self.isOAuthToken(trimmedKey)
 
-        // OAuth tokens require the oauth beta flag
-        let betaFeatures = isOAuth ? "oauth-2025-04-20" : "prompt-caching-2024-07-31"
-        request.setValue(betaFeatures, forHTTPHeaderField: "anthropic-beta")
+        // Detect thinking-capable models
+        let isAdaptiveModel = model.contains("opus-4-6") || model.contains("sonnet-4-6")
+        let isLegacyThinkingModel = !isAdaptiveModel && (model.contains("opus-4") || model.contains("sonnet-4-5"))
+        let hasTools = tools != nil && !tools!.isEmpty
+        // OAuth + thinking + tools is not yet supported — disable thinking when tools are present with OAuth
+        let useThinking = (isAdaptiveModel || isLegacyThinkingModel) && !(isOAuth && hasTools)
+
+        // Beta headers
+        var betaParts: [String] = []
+        if isOAuth { betaParts.append("oauth-2025-04-20") }
+        // Legacy thinking models need interleaved-thinking header; adaptive models don't
+        if useThinking && isLegacyThinkingModel { betaParts.append("interleaved-thinking-2025-05-14") }
+        if !isOAuth { betaParts.append("prompt-caching-2024-07-31") }
+        request.setValue(betaParts.joined(separator: ","), forHTTPHeaderField: "anthropic-beta")
 
         // Model-aware max tokens (opus supports much more than 8192)
         let effectiveMaxTokens = anthropicMaxTokens(for: model, userMax: maxTokens)
@@ -251,33 +262,44 @@ final class LLMService: @unchecked Sendable {
             "max_tokens": effectiveMaxTokens,
             "stream": true,
         ]
-        if let temperature { body["temperature"] = temperature }
+        if let temperature, !useThinking, !isOAuth { body["temperature"] = temperature }
 
-        // OAuth bug workaround: streaming + system field + tools = HTTP 500
-        // For OAuth + tools: skip system field, prepend system prompt to first user message
-        // For API keys: use system field with cache_control for prompt caching
-        var adjustedMessages = messages
-        if !systemPrompt.isEmpty {
-            let trimmedPrompt = systemPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
-            let hasTools = tools != nil && !tools!.isEmpty
-            if isOAuth && hasTools {
-                // Prepend system prompt to first user message (only if not already injected)
-                if let firstIdx = adjustedMessages.firstIndex(where: { $0.role == "user" }) {
-                    let original = adjustedMessages[firstIdx].content ?? ""
-                    if !original.hasPrefix("[System Instructions]") {
-                        adjustedMessages[firstIdx] = LLMMessage.user("[System Instructions]\n\(trimmedPrompt)\n\n[User Message]\n\(original)")
-                    }
-                } else {
-                    adjustedMessages.insert(.user("[System Instructions]\n\(trimmedPrompt)"), at: 0)
-                }
+        // Thinking configuration
+        if useThinking {
+            if isAdaptiveModel {
+                // Opus 4.6 / Sonnet 4.6: use adaptive thinking (no budget_tokens needed)
+                body["thinking"] = ["type": "adaptive"] as [String: String]
             } else {
-                body["system"] = [
-                    ["type": "text", "text": trimmedPrompt, "cache_control": ["type": "ephemeral"]]
-                ] as [[String: Any]]
+                // Legacy thinking models: manual thinking with budget
+                let thinkingBudget = max(1024, effectiveMaxTokens / 2)
+                body["thinking"] = ["type": "enabled", "budget_tokens": thinkingBudget] as [String: Any]
             }
         }
 
-        body["messages"] = buildAnthropicMessages(adjustedMessages)
+        // Build system prompt blocks
+        let trimmedPrompt = systemPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if isOAuth {
+            // OAuth requests: build system blocks with attribution header for full model access
+            var systemBlocks: [[String: Any]] = []
+
+            // Attribution header — required for OAuth tokens to access premium models (opus, sonnet)
+            let billingHeader = "x-anthropic-billing-header: cc_version=2.1.66; cc_entrypoint=dockwright;"
+            systemBlocks.append(["type": "text", "text": billingHeader])
+
+            if !trimmedPrompt.isEmpty {
+                systemBlocks.append(["type": "text", "text": trimmedPrompt])
+            }
+
+            body["system"] = systemBlocks
+        } else if !trimmedPrompt.isEmpty {
+            // API key: use system field with cache_control for prompt caching
+            body["system"] = [
+                ["type": "text", "text": trimmedPrompt, "cache_control": ["type": "ephemeral"]]
+            ] as [[String: Any]]
+        }
+
+        body["messages"] = buildAnthropicMessages(messages)
 
         // Tools
         if var toolDefs = tools, !toolDefs.isEmpty {

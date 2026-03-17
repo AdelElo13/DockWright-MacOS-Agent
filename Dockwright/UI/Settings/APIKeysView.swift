@@ -355,9 +355,10 @@ struct APIKeysView: View {
     }
 
     /// Debounced save — waits 1.5s after last keystroke, then saves.
+    /// Requires minimum 10 characters to avoid persisting partial keys mid-typing.
     private func debounceSave(key: String, value: String) {
         debounceTask?.cancel()
-        guard !value.isEmpty else { return }
+        guard !value.isEmpty, value.count >= 10 else { return }
         debounceTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: 1_500_000_000)
             guard !Task.isCancelled else { return }

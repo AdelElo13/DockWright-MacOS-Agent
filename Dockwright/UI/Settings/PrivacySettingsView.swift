@@ -35,9 +35,22 @@ struct PrivacySettingsView: View {
 
     var body: some View {
         Form {
-            Section("System Permissions") {
+            Section {
                 ForEach(permissionRows, id: \.type) { row in
                     permissionRowView(row.type, name: row.name, icon: row.icon, description: row.description)
+                }
+            } header: {
+                HStack {
+                    Text("System Permissions")
+                    Spacer()
+                    Button("Refresh All") {
+                        pm.requestAllUndetermined()
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                            pm.refreshAll()
+                        }
+                    }
+                    .buttonStyle(.borderless)
+                    .font(.caption)
                 }
             }
 
@@ -101,6 +114,8 @@ struct PrivacySettingsView: View {
         .formStyle(.grouped)
         .onAppear {
             pm.startMonitoring()
+            // Silently request all undetermined permissions — if already granted
+            // in System Settings, the API call returns immediately without dialog
             pm.requestAllUndetermined()
         }
         .onDisappear {

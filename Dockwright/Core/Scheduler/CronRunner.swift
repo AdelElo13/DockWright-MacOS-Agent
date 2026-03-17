@@ -177,6 +177,15 @@ final class CronRunner: @unchecked Sendable {
             }
 
             handler(job.name, "[Scheduled job: \(job.name)] \(actionText)")
+
+            // Notify completion so the .completion preference is honoured
+            Task {
+                await channel.broadcast(
+                    title: "Dockwright: \(job.name)",
+                    body: "Scheduled task completed.",
+                    category: .completion
+                )
+            }
         } else {
             // Fallback: just send a notification
             Task {
