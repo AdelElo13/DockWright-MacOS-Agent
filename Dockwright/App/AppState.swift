@@ -106,6 +106,16 @@ final class AppState {
     var agentMode = false
     var agentState: AgentExecutor.AgentState = .idle
 
+    // MARK: - Inspector & Event Log
+
+    let eventLog = AgentEventLog()
+    var showInspector = false
+
+    // Active plan for visualization (set during agent execution)
+    var activePlan: AgentExecutor.AgentPlan?
+    var activePlanResults: [AgentExecutor.StepResult] = []
+    var activePlanCurrentStep: Int?
+
     // MARK: - Vision: pending images to include in next message
 
     var pendingImages: [ImageContent] = []
@@ -289,6 +299,7 @@ final class AppState {
         tools.register(iMessageTool())
         tools.register(UIAutomationTool())
         tools.register(DecomposeTaskTool())
+        tools.register(ChromeCDPTool())
 
         // Start sensory ambient loop (screen capture + OCR every 15s)
         // This is non-fatal -- if screen capture permission is denied, it degrades gracefully
@@ -638,6 +649,9 @@ final class AppState {
                 streamingText = ""
                 currentActivity = .thinking
 
+                // Log LLM request to inspector
+                eventLog.llmRequest(model: selectedModel, messageCount: llmMessages.count)
+
                 let response = try await llm.streamChat(
                     messages: llmMessages,
                     tools: toolDefs.isEmpty ? nil : toolDefs,
@@ -654,6 +668,13 @@ final class AppState {
 
                 // Record tokens
                 tokenCounter.recordUsage(input: response.inputTokens, output: response.outputTokens)
+
+                // Log LLM response to inspector
+                eventLog.llmResponse(
+                    model: selectedModel,
+                    tokens: response.inputTokens + response.outputTokens,
+                    toolCalls: response.toolCalls?.count ?? 0
+                )
 
                 // Handle tool calls
                 if let toolCalls = response.toolCalls, !toolCalls.isEmpty {
@@ -675,12 +696,24 @@ final class AppState {
                         let args = toolExecutor.parseArguments(tc.function.arguments)
                         currentActivity = .executing(tc.function.name)
 
+                        // Log tool start to inspector
+                        eventLog.toolStarted(name: tc.function.name, args: args)
+                        let toolStartTime = Date()
+
                         // Set export bridge before export tool runs
                         if tc.function.name == "export" {
                             ExportDataBridge.shared.currentConversation = currentConversation
                         }
 
                         let result = await toolExecutor.executeTool(name: tc.function.name, arguments: args)
+
+                        // Log tool completion/failure to inspector
+                        let toolDurationMs = Int(Date().timeIntervalSince(toolStartTime) * 1000)
+                        if result.isError {
+                            eventLog.toolFailed(name: tc.function.name, error: String(result.output.prefix(200)))
+                        } else {
+                            eventLog.toolCompleted(name: tc.function.name, output: result.output, durationMs: toolDurationMs)
+                        }
 
                         // Record tool errors so we don't repeat the same mistakes
                         if result.isError {

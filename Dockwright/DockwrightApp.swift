@@ -138,6 +138,7 @@ struct DockwrightApp: App {
             appState.showSkillsAutomations = false
             appState.showScheduler = false
             appState.showGoals = false
+            // Note: Inspector is a side panel, not an overlay — don't dismiss it here
         }
     }
 
@@ -158,6 +159,16 @@ struct DockwrightApp: App {
 
                 ChatView(appState: appState)
                     .frame(minWidth: 400, maxWidth: .infinity)
+
+                if appState.showInspector {
+                    Divider()
+                    InspectorPanelView(
+                        eventLog: appState.eventLog,
+                        agentState: appState.agentState,
+                        isVisible: $appState.showInspector
+                    )
+                    .transition(.move(edge: .trailing))
+                }
             }
             .toolbar {
                 ToolbarItem(placement: .navigation) {
@@ -198,6 +209,26 @@ struct DockwrightApp: App {
                             )
                         }
                         .buttonStyle(.plain)
+
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                appState.showInspector.toggle()
+                            }
+                        } label: {
+                            HStack(spacing: 3) {
+                                Image(systemName: "waveform.badge.magnifyingglass")
+                                    .font(.system(size: 11))
+                                if !appState.eventLog.events.isEmpty {
+                                    Text("\(appState.eventLog.events.count)")
+                                        .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                }
+                            }
+                            .foregroundStyle(
+                                appState.showInspector ? DockwrightTheme.primary : .secondary
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .help("Toggle Inspector Panel")
 
                         Menu {
                             ForEach(LLMModels.allModels, id: \.id) { model in
