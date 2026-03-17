@@ -140,7 +140,26 @@ final class VoiceService: NSObject {
         ("zh-CN", "Chinese (Mandarin)"),
     ]
 
-    var sttLanguage: String = UserDefaults.standard.string(forKey: "voice.sttLanguage") ?? "en-US" {
+    /// Detect the macOS system language and map to a supported STT locale.
+    static func systemLanguageDefault() -> String {
+        let preferred = Locale.preferredLanguages.first ?? "en-US"
+        // Match against our supported list
+        let supportedIds = Set(supportedSTTLanguages.map(\.id))
+        if supportedIds.contains(preferred) { return preferred }
+        // Try prefix match (e.g. "nl" → "nl-NL")
+        let prefix = String(preferred.prefix(2))
+        if let match = supportedSTTLanguages.first(where: { $0.id.hasPrefix(prefix) }) {
+            return match.id
+        }
+        return "en-US"
+    }
+
+    /// Resolve the effective language: user setting or system default.
+    static var effectiveLanguage: String {
+        UserDefaults.standard.string(forKey: "voice.sttLanguage") ?? systemLanguageDefault()
+    }
+
+    var sttLanguage: String = UserDefaults.standard.string(forKey: "voice.sttLanguage") ?? systemLanguageDefault() {
         didSet {
             UserDefaults.standard.set(sttLanguage, forKey: "voice.sttLanguage")
             updateRecognizer()
@@ -149,7 +168,7 @@ final class VoiceService: NSObject {
 
     // MARK: - Private
     private var speechRecognizer: SFSpeechRecognizer? = SFSpeechRecognizer(locale: Locale(identifier:
-        UserDefaults.standard.string(forKey: "voice.sttLanguage") ?? "en-US"
+        UserDefaults.standard.string(forKey: "voice.sttLanguage") ?? systemLanguageDefault()
     ))
 
     private func updateRecognizer() {

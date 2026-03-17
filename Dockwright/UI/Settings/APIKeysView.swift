@@ -12,10 +12,16 @@ struct APIKeysView: View {
     @State private var telegramToken = ""
     @State private var telegramChatId = UserDefaults.standard.string(forKey: "telegram_chat_id") ?? ""
     @State private var discordWebhook = UserDefaults.standard.string(forKey: "discord_webhook_url") ?? ""
+    @State private var whatsappToken = ""
+    @State private var whatsappPhoneId = UserDefaults.standard.string(forKey: "whatsapp_phone_number_id") ?? ""
+    @State private var whatsappVerifyToken = UserDefaults.standard.string(forKey: "whatsapp_verify_token") ?? "dockwright_wa_verify"
+    @State private var whatsappAllowed = UserDefaults.standard.string(forKey: "whatsapp_allowed_numbers") ?? ""
     @State private var elevenLabsKey = ""
+    @State private var braveSearchKey = ""
     @State private var claudeCode = ""
     @State private var saveStatus = ""
-    @State private var authManager = AuthManager()
+    @State private var debounceTask: Task<Void, Never>?
+    var authManager: AuthManager
 
     // Check which keys exist
     @State private var hasAnthropic = false
@@ -26,8 +32,10 @@ struct APIKeysView: View {
     @State private var hasDeepSeek = false
     @State private var hasKimi = false
     @State private var hasTelegram = false
+    @State private var hasWhatsApp = false
     @State private var hasDiscord = false
     @State private var hasElevenLabs = false
+    @State private var hasBraveSearch = false
 
     var body: some View {
         ScrollView {
@@ -62,6 +70,7 @@ struct APIKeysView: View {
                             Button("Disconnect Claude") {
                                 authManager.signOutClaude()
                                 refreshStatus()
+                                AppPreferences.shared.syncModelToAvailableProvider(authManager: authManager)
                             }
                             .foregroundStyle(DockwrightTheme.error)
                         } else {
@@ -87,6 +96,7 @@ struct APIKeysView: View {
                                         await authManager.exchangeClaudeCode(claudeCode)
                                         claudeCode = ""
                                         refreshStatus()
+                                        AppPreferences.shared.syncModelToAvailableProvider(authManager: authManager)
                                     }
                                 }
                                 .disabled(claudeCode.isEmpty || authManager.isSigningIn)
@@ -97,6 +107,8 @@ struct APIKeysView: View {
                     // Manual key entry
                     SecureField("sk-ant-... (manual API key)", text: $anthropicKey)
                         .textFieldStyle(.roundedBorder)
+                        .onSubmit { autoSave(key: "anthropic_api_key", value: &anthropicKey) }
+                        .onChange(of: anthropicKey) { _, v in debounceSave(key: "anthropic_api_key", value: v) }
                 }
 
                 // OpenAI Section
@@ -128,6 +140,7 @@ struct APIKeysView: View {
                             Button("Disconnect OpenAI") {
                                 authManager.signOutOpenAI()
                                 refreshStatus()
+                                AppPreferences.shared.syncModelToAvailableProvider(authManager: authManager)
                             }
                             .foregroundStyle(DockwrightTheme.error)
                         } else {
@@ -140,6 +153,8 @@ struct APIKeysView: View {
 
                     SecureField("sk-... (manual API key)", text: $openaiKey)
                         .textFieldStyle(.roundedBorder)
+                        .onSubmit { autoSave(key: "openai_api_key", value: &openaiKey) }
+                        .onChange(of: openaiKey) { _, v in debounceSave(key: "openai_api_key", value: v) }
                 }
 
                 // Gemini Section
@@ -147,6 +162,8 @@ struct APIKeysView: View {
                     providerRow(name: "Google (Gemini)", hasKey: hasGemini, description: "For Gemini model support.")
                     SecureField("AIza...", text: $geminiKey)
                         .textFieldStyle(.roundedBorder)
+                        .onSubmit { autoSave(key: "gemini_api_key", value: &geminiKey) }
+                        .onChange(of: geminiKey) { _, v in debounceSave(key: "gemini_api_key", value: v) }
                 }
 
                 // xAI / Grok Section
@@ -154,6 +171,8 @@ struct APIKeysView: View {
                     providerRow(name: "xAI (Grok)", hasKey: hasXAI, description: "For Grok model support.")
                     SecureField("xai-...", text: $xaiKey)
                         .textFieldStyle(.roundedBorder)
+                        .onSubmit { autoSave(key: "xai_api_key", value: &xaiKey) }
+                        .onChange(of: xaiKey) { _, v in debounceSave(key: "xai_api_key", value: v) }
                 }
 
                 // Mistral Section
@@ -161,6 +180,8 @@ struct APIKeysView: View {
                     providerRow(name: "Mistral", hasKey: hasMistral, description: "For Mistral model support.")
                     SecureField("Mistral API key", text: $mistralKey)
                         .textFieldStyle(.roundedBorder)
+                        .onSubmit { autoSave(key: "mistral_api_key", value: &mistralKey) }
+                        .onChange(of: mistralKey) { _, v in debounceSave(key: "mistral_api_key", value: v) }
                 }
 
                 // DeepSeek Section
@@ -168,6 +189,8 @@ struct APIKeysView: View {
                     providerRow(name: "DeepSeek", hasKey: hasDeepSeek, description: "For DeepSeek model support.")
                     SecureField("sk-...", text: $deepseekKey)
                         .textFieldStyle(.roundedBorder)
+                        .onSubmit { autoSave(key: "deepseek_api_key", value: &deepseekKey) }
+                        .onChange(of: deepseekKey) { _, v in debounceSave(key: "deepseek_api_key", value: v) }
                 }
 
                 // Kimi / Moonshot Section
@@ -175,15 +198,52 @@ struct APIKeysView: View {
                     providerRow(name: "Kimi (Moonshot)", hasKey: hasKimi, description: "For Moonshot model support.")
                     SecureField("sk-...", text: $kimiKey)
                         .textFieldStyle(.roundedBorder)
+                        .onSubmit { autoSave(key: "kimi_api_key", value: &kimiKey) }
+                        .onChange(of: kimiKey) { _, v in debounceSave(key: "kimi_api_key", value: v) }
                 }
 
                 // Telegram Section
                 Section {
-                    providerRow(name: "Telegram Bot", hasKey: hasTelegram, description: "For Telegram notifications.")
+                    providerRow(name: "Telegram Bot", hasKey: hasTelegram, description: "Two-way bot: receive & reply to messages via Telegram.")
                     SecureField("Bot token (from @BotFather)", text: $telegramToken)
                         .textFieldStyle(.roundedBorder)
-                    TextField("Chat ID", text: $telegramChatId)
+                        .onSubmit { autoSave(key: "telegram_bot_token", value: &telegramToken) }
+                        .onChange(of: telegramToken) { _, v in debounceSave(key: "telegram_bot_token", value: v) }
+                    TextField("Chat ID (leave empty for discovery mode)", text: $telegramChatId)
                         .textFieldStyle(.roundedBorder)
+                        .onChange(of: telegramChatId) { _, v in
+                            UserDefaults.standard.set(v, forKey: "telegram_chat_id")
+                        }
+                    Text("Leave Chat ID empty to auto-learn it from the first message.")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
+
+                // WhatsApp Section
+                Section {
+                    providerRow(name: "WhatsApp Business", hasKey: hasWhatsApp, description: "Two-way bot via Meta Cloud API.")
+                    SecureField("Access token", text: $whatsappToken)
+                        .textFieldStyle(.roundedBorder)
+                        .onSubmit { autoSave(key: "whatsapp_token", value: &whatsappToken) }
+                        .onChange(of: whatsappToken) { _, v in debounceSave(key: "whatsapp_token", value: v) }
+                    TextField("Phone Number ID", text: $whatsappPhoneId)
+                        .textFieldStyle(.roundedBorder)
+                        .onChange(of: whatsappPhoneId) { _, v in
+                            UserDefaults.standard.set(v, forKey: "whatsapp_phone_number_id")
+                        }
+                    TextField("Verify token", text: $whatsappVerifyToken)
+                        .textFieldStyle(.roundedBorder)
+                        .onChange(of: whatsappVerifyToken) { _, v in
+                            UserDefaults.standard.set(v, forKey: "whatsapp_verify_token")
+                        }
+                    TextField("Allowed numbers (+31612345678,...)", text: $whatsappAllowed)
+                        .textFieldStyle(.roundedBorder)
+                        .onChange(of: whatsappAllowed) { _, v in
+                            UserDefaults.standard.set(v, forKey: "whatsapp_allowed_numbers")
+                        }
+                    Text("Webhook URL: http://your-ip:9879/webhook")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
                 }
 
                 // Discord Section
@@ -191,6 +251,10 @@ struct APIKeysView: View {
                     providerRow(name: "Discord Webhook", hasKey: hasDiscord, description: "For Discord channel notifications.")
                     TextField("Webhook URL", text: $discordWebhook)
                         .textFieldStyle(.roundedBorder)
+                        .onChange(of: discordWebhook) { _, v in
+                            UserDefaults.standard.set(v, forKey: "discord_webhook_url")
+                            hasDiscord = !v.isEmpty
+                        }
                 }
 
                 // ElevenLabs Section
@@ -198,6 +262,21 @@ struct APIKeysView: View {
                     providerRow(name: "ElevenLabs", hasKey: hasElevenLabs, description: "High-quality AI text-to-speech voices.")
                     SecureField("API Key", text: $elevenLabsKey)
                         .textFieldStyle(.roundedBorder)
+                        .onSubmit { autoSave(key: "elevenlabs_api_key", value: &elevenLabsKey) }
+                        .onChange(of: elevenLabsKey) { _, v in debounceSave(key: "elevenlabs_api_key", value: v) }
+                }
+
+                // Brave Search Section
+                Section {
+                    providerRow(name: "Brave Search", hasKey: hasBraveSearch, description: "Web search API (free tier: 2000 queries/mo).")
+                    SecureField("BSA...", text: $braveSearchKey)
+                        .textFieldStyle(.roundedBorder)
+                        .onSubmit { autoSave(key: "brave_search_api_key", value: &braveSearchKey) }
+                        .onChange(of: braveSearchKey) { _, v in debounceSave(key: "brave_search_api_key", value: v) }
+                    if !hasBraveSearch {
+                        Link("Get free API key →", destination: URL(string: "https://brave.com/search/api/")!)
+                            .font(DockwrightTheme.Typography.caption)
+                    }
                 }
 
                 // Error display
@@ -209,15 +288,12 @@ struct APIKeysView: View {
                     }
                 }
 
-                // Save button
-                Section {
-                    HStack {
-                        Button("Save Keys") {
-                            saveKeys()
-                        }
-                        .buttonStyle(.borderedProminent)
-
-                        if !saveStatus.isEmpty {
+                // Auto-save status
+                if !saveStatus.isEmpty {
+                    Section {
+                        HStack {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundStyle(DockwrightTheme.success)
                             Text(saveStatus)
                                 .font(DockwrightTheme.Typography.caption)
                                 .foregroundStyle(DockwrightTheme.success)
@@ -228,6 +304,18 @@ struct APIKeysView: View {
             .formStyle(.grouped)
         }
         .onAppear { refreshStatus() }
+        .onChange(of: authManager.isClaudeSignedIn) { _, signedIn in
+            if signedIn {
+                refreshStatus()
+                AppPreferences.shared.syncModelToAvailableProvider(authManager: authManager)
+            }
+        }
+        .onChange(of: authManager.isOpenAISignedIn) { _, signedIn in
+            if signedIn {
+                refreshStatus()
+                AppPreferences.shared.syncModelToAvailableProvider(authManager: authManager)
+            }
+        }
     }
 
     // MARK: - Helpers
@@ -258,61 +346,33 @@ struct APIKeysView: View {
             .frame(width: 8, height: 8)
     }
 
-    private func saveKeys() {
-        if !anthropicKey.isEmpty {
-            KeychainHelper.save(key: "anthropic_api_key", value: anthropicKey)
-            anthropicKey = ""
-        }
-        if !openaiKey.isEmpty {
-            KeychainHelper.save(key: "openai_api_key", value: openaiKey)
-            openaiKey = ""
-        }
-        if !geminiKey.isEmpty {
-            KeychainHelper.save(key: "gemini_api_key", value: geminiKey)
-            geminiKey = ""
-        }
-        if !xaiKey.isEmpty {
-            KeychainHelper.save(key: "xai_api_key", value: xaiKey)
-            xaiKey = ""
-        }
-        if !mistralKey.isEmpty {
-            KeychainHelper.save(key: "mistral_api_key", value: mistralKey)
-            mistralKey = ""
-        }
-        if !deepseekKey.isEmpty {
-            KeychainHelper.save(key: "deepseek_api_key", value: deepseekKey)
-            deepseekKey = ""
-        }
-        if !kimiKey.isEmpty {
-            KeychainHelper.save(key: "kimi_api_key", value: kimiKey)
-            kimiKey = ""
-        }
-        if !telegramToken.isEmpty {
-            KeychainHelper.save(key: "telegram_bot_token", value: telegramToken)
-            telegramToken = ""
-        }
-        if !telegramChatId.isEmpty {
-            UserDefaults.standard.set(telegramChatId, forKey: "telegram_chat_id")
-        }
-        if !discordWebhook.isEmpty {
-            UserDefaults.standard.set(discordWebhook, forKey: "discord_webhook_url")
-        }
-        if !elevenLabsKey.isEmpty {
-            KeychainHelper.save(key: "elevenlabs_api_key", value: elevenLabsKey)
-            elevenLabsKey = ""
-        }
+    /// Instant save on Enter/submit.
+    private func autoSave(key: String, value: inout String) {
+        guard !value.isEmpty else { return }
+        authManager.saveKey(key, value: value)
+        value = ""
+        didSave()
+    }
 
+    /// Debounced save — waits 1.5s after last keystroke, then saves.
+    private func debounceSave(key: String, value: String) {
+        debounceTask?.cancel()
+        guard !value.isEmpty else { return }
+        debounceTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            guard !Task.isCancelled else { return }
+            authManager.saveKey(key, value: value)
+            didSave()
+        }
+    }
+
+    /// Common post-save actions.
+    private func didSave() {
         refreshStatus()
         saveStatus = "Saved!"
-
-        // Refresh model registry after saving new keys
-        Task.detached {
-            await ModelRegistry.shared.refreshAll()
-        }
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-            saveStatus = ""
-        }
+        AppPreferences.shared.syncModelToAvailableProvider(authManager: authManager)
+        Task.detached { await ModelRegistry.shared.refreshAll() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { saveStatus = "" }
     }
 
     private func refreshStatus() {
@@ -324,7 +384,9 @@ struct APIKeysView: View {
         hasDeepSeek = KeychainHelper.exists(key: "deepseek_api_key")
         hasKimi = KeychainHelper.exists(key: "kimi_api_key")
         hasTelegram = KeychainHelper.exists(key: "telegram_bot_token")
+        hasWhatsApp = KeychainHelper.exists(key: "whatsapp_token")
         hasDiscord = !(UserDefaults.standard.string(forKey: "discord_webhook_url") ?? "").isEmpty
         hasElevenLabs = KeychainHelper.exists(key: "elevenlabs_api_key")
+        hasBraveSearch = KeychainHelper.exists(key: "brave_search_api_key")
     }
 }

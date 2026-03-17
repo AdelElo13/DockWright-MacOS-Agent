@@ -1,6 +1,8 @@
 import Foundation
 import os
 
+private let llmLog = Logger(subsystem: "com.Aatje.Dockwright", category: "LLM")
+
 // LLMProvider, LLMModelInfo, and LLMModels are defined in LLMModels.swift
 
 /// Multi-provider streaming LLM client.
@@ -52,9 +54,43 @@ final class LLMService: @unchecked Sendable {
         model: String = "claude-opus-4-6",
         apiKey: String,
         systemPrompt: String = "",
+        temperature: Double? = nil,
+        maxTokens: Int? = nil,
+        onChunk: @escaping @Sendable (StreamChunk) -> Void
+    ) async throws -> LLMResponse {
+        let maxRetries = 4
+        var lastError: Error?
+        for attempt in 1...maxRetries {
+            do {
+                return try await _streamChatOnce(
+                    messages: messages, tools: tools, model: model,
+                    apiKey: apiKey, systemPrompt: systemPrompt,
+                    temperature: temperature, maxTokens: maxTokens,
+                    onChunk: onChunk
+                )
+            } catch let error as LLMError where error.isRetryable && attempt < maxRetries {
+                lastError = error
+                log.warning("[LLM] Retryable error (attempt \(attempt)/\(maxRetries)): \(error.localizedDescription). Retrying...")
+                try await Task.sleep(nanoseconds: UInt64(attempt) * 1_000_000_000)  // 1s backoff
+                continue
+            }
+        }
+        throw lastError ?? LLMError.apiError("Unknown error after retries")
+    }
+
+    private func _streamChatOnce(
+        messages: [LLMMessage],
+        tools: [[String: Any]]? = nil,
+        model: String = "claude-opus-4-6",
+        apiKey: String,
+        systemPrompt: String = "",
+        temperature: Double? = nil,
+        maxTokens: Int? = nil,
         onChunk: @escaping @Sendable (StreamChunk) -> Void
     ) async throws -> LLMResponse {
         let provider = LLMModels.provider(for: model)
+        let resolvedTemp = temperature
+        let resolvedMaxTokens = maxTokens ?? 8192
 
         return try await withThrowingTaskGroup(of: LLMResponse.self) { group in
             // Watchdog timeout
@@ -69,47 +105,63 @@ final class LLMService: @unchecked Sendable {
                 case .anthropic:
                     return try await self.performAnthropicStream(
                         messages: messages, tools: tools, model: model,
-                        apiKey: apiKey, systemPrompt: systemPrompt, onChunk: onChunk
+                        apiKey: apiKey, systemPrompt: systemPrompt,
+                        temperature: resolvedTemp, maxTokens: resolvedMaxTokens,
+                        onChunk: onChunk
                     )
                 case .openai:
                     return try await self.performOpenAIStream(
                         messages: messages, tools: tools, model: model,
-                        apiKey: apiKey, systemPrompt: systemPrompt, onChunk: onChunk,
+                        apiKey: apiKey, systemPrompt: systemPrompt,
+                        temperature: resolvedTemp, maxTokens: resolvedMaxTokens,
+                        onChunk: onChunk,
                         baseURL: "https://api.openai.com/v1/chat/completions"
                     )
                 case .ollama:
                     return try await self.performOpenAIStream(
                         messages: messages, tools: tools, model: model,
-                        apiKey: "", systemPrompt: systemPrompt, onChunk: onChunk,
+                        apiKey: "", systemPrompt: systemPrompt,
+                        temperature: resolvedTemp, maxTokens: resolvedMaxTokens,
+                        onChunk: onChunk,
                         baseURL: "http://localhost:11434/v1/chat/completions"
                     )
                 case .google:
                     return try await self.performGeminiStream(
                         messages: messages, tools: tools, model: model,
-                        apiKey: apiKey, systemPrompt: systemPrompt, onChunk: onChunk
+                        apiKey: apiKey, systemPrompt: systemPrompt,
+                        temperature: resolvedTemp, maxTokens: resolvedMaxTokens,
+                        onChunk: onChunk
                     )
                 case .xai:
                     return try await self.performOpenAIStream(
                         messages: messages, tools: tools, model: model,
-                        apiKey: apiKey, systemPrompt: systemPrompt, onChunk: onChunk,
+                        apiKey: apiKey, systemPrompt: systemPrompt,
+                        temperature: resolvedTemp, maxTokens: resolvedMaxTokens,
+                        onChunk: onChunk,
                         baseURL: "https://api.x.ai/v1/chat/completions"
                     )
                 case .mistral:
                     return try await self.performOpenAIStream(
                         messages: messages, tools: tools, model: model,
-                        apiKey: apiKey, systemPrompt: systemPrompt, onChunk: onChunk,
+                        apiKey: apiKey, systemPrompt: systemPrompt,
+                        temperature: resolvedTemp, maxTokens: resolvedMaxTokens,
+                        onChunk: onChunk,
                         baseURL: "https://api.mistral.ai/v1/chat/completions"
                     )
                 case .deepseek:
                     return try await self.performOpenAIStream(
                         messages: messages, tools: tools, model: model,
-                        apiKey: apiKey, systemPrompt: systemPrompt, onChunk: onChunk,
+                        apiKey: apiKey, systemPrompt: systemPrompt,
+                        temperature: resolvedTemp, maxTokens: resolvedMaxTokens,
+                        onChunk: onChunk,
                         baseURL: "https://api.deepseek.com/chat/completions"
                     )
                 case .kimi:
                     return try await self.performOpenAIStream(
                         messages: messages, tools: tools, model: model,
-                        apiKey: apiKey, systemPrompt: systemPrompt, onChunk: onChunk,
+                        apiKey: apiKey, systemPrompt: systemPrompt,
+                        temperature: resolvedTemp, maxTokens: resolvedMaxTokens,
+                        onChunk: onChunk,
                         baseURL: "https://api.moonshot.cn/v1/chat/completions"
                     )
                 }
@@ -142,14 +194,37 @@ final class LLMService: @unchecked Sendable {
 
     // MARK: - Anthropic SSE Stream
 
+    // MARK: - Model-Aware Max Tokens
+
+    /// Returns the correct max_tokens for a given Anthropic model.
+    /// Matches the values from Jarvis: Opus 4.6=128K, Sonnet 4.6/4.5=64K, Opus 4=32K, others=64K.
+    private func anthropicMaxTokens(for model: String, userMax: Int) -> Int {
+        // Use the larger of model capability and user request
+        let modelMax: Int
+        if model.contains("opus-4-6") { modelMax = 128000 }
+        else if model.contains("opus-4-5") || model.contains("sonnet-4-6") || model.contains("sonnet-4-5") { modelMax = 64000 }
+        else if model.contains("opus-4") { modelMax = 32000 }
+        else { modelMax = 64000 } // Sonnet/Haiku 4.x all support 64K
+        // Clamp user setting: at least 256 tokens, at most model max
+        return min(max(userMax, 256), modelMax)
+    }
+
     private func performAnthropicStream(
         messages: [LLMMessage],
         tools: [[String: Any]]?,
         model: String,
         apiKey: String,
         systemPrompt: String,
+        temperature: Double? = nil,
+        maxTokens: Int = 8192,
         onChunk: @escaping @Sendable (StreamChunk) -> Void
     ) async throws -> LLMResponse {
+        // Trim whitespace from API key (critical — trailing newlines break auth detection)
+        let trimmedKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedKey.isEmpty else {
+            throw LLMError.apiError("Anthropic API key is empty")
+        }
+
         guard let url = URL(string: "https://api.anthropic.com/v1/messages") else {
             throw LLMError.apiError("Invalid Anthropic API URL")
         }
@@ -158,25 +233,67 @@ final class LLMService: @unchecked Sendable {
         request.timeoutInterval = 200
 
         // Apply correct auth: API key → x-api-key, OAuth → Authorization: Bearer
-        applyAnthropicAuth(&request, apiKey: apiKey)
+        applyAnthropicAuth(&request, apiKey: trimmedKey)
         request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
-        request.setValue("application/json", forHTTPHeaderField: "content-type")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let isOAuth = Self.isOAuthToken(trimmedKey)
 
         // OAuth tokens require the oauth beta flag
-        var betaFeatures = "prompt-caching-2024-07-31"
-        if Self.isOAuthToken(apiKey) { betaFeatures += ",oauth-2025-04-20" }
+        let betaFeatures = isOAuth ? "oauth-2025-04-20" : "prompt-caching-2024-07-31"
         request.setValue(betaFeatures, forHTTPHeaderField: "anthropic-beta")
+
+        // Model-aware max tokens (opus supports much more than 8192)
+        let effectiveMaxTokens = anthropicMaxTokens(for: model, userMax: maxTokens)
 
         var body: [String: Any] = [
             "model": model,
-            "max_tokens": 8192,
+            "max_tokens": effectiveMaxTokens,
             "stream": true,
         ]
-        if !systemPrompt.isEmpty { body["system"] = systemPrompt }
-        body["messages"] = buildAnthropicMessages(messages)
-        if let tools, !tools.isEmpty { body["tools"] = tools }
+        if let temperature { body["temperature"] = temperature }
 
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        // OAuth bug workaround: streaming + system field + tools = HTTP 500
+        // For OAuth + tools: skip system field, prepend system prompt to first user message
+        // For API keys: use system field with cache_control for prompt caching
+        var adjustedMessages = messages
+        if !systemPrompt.isEmpty {
+            let trimmedPrompt = systemPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
+            let hasTools = tools != nil && !tools!.isEmpty
+            if isOAuth && hasTools {
+                // Prepend system prompt to first user message (only if not already injected)
+                if let firstIdx = adjustedMessages.firstIndex(where: { $0.role == "user" }) {
+                    let original = adjustedMessages[firstIdx].content ?? ""
+                    if !original.hasPrefix("[System Instructions]") {
+                        adjustedMessages[firstIdx] = LLMMessage.user("[System Instructions]\n\(trimmedPrompt)\n\n[User Message]\n\(original)")
+                    }
+                } else {
+                    adjustedMessages.insert(.user("[System Instructions]\n\(trimmedPrompt)"), at: 0)
+                }
+            } else {
+                body["system"] = [
+                    ["type": "text", "text": trimmedPrompt, "cache_control": ["type": "ephemeral"]]
+                ] as [[String: Any]]
+            }
+        }
+
+        body["messages"] = buildAnthropicMessages(adjustedMessages)
+
+        // Tools
+        if var toolDefs = tools, !toolDefs.isEmpty {
+            // Only add cache_control on tools for non-OAuth (prompt caching)
+            if !isOAuth, var lastTool = toolDefs.last {
+                lastTool["cache_control"] = ["type": "ephemeral"] as [String: String]
+                toolDefs[toolDefs.count - 1] = lastTool
+            }
+            body["tools"] = toolDefs
+        }
+
+        let jsonData = try JSONSerialization.data(withJSONObject: body)
+        request.httpBody = jsonData
+        let toolCount = (tools?.count ?? 0)
+        let authType = isOAuth ? "OAuth" : "API-key"
+        llmLog.debug("[Anthropic] model=\(model) auth=\(authType) tools=\(toolCount) bytes=\(jsonData.count)")
 
         let (bytes, response) = try await session.bytes(for: request)
         guard let httpResponse = response as? HTTPURLResponse else { throw LLMError.invalidResponse }
@@ -184,10 +301,11 @@ final class LLMService: @unchecked Sendable {
         if httpResponse.statusCode != 200 {
             var errorBody = ""
             for try await line in bytes.lines { errorBody += line; if errorBody.count > 2000 { break } }
+            llmLog.warning("[Anthropic] HTTP \(httpResponse.statusCode): \(errorBody.prefix(500))")
             if httpResponse.statusCode == 401 { throw LLMError.unauthorized }
             if httpResponse.statusCode == 429 { throw LLMError.rateLimited }
             if httpResponse.statusCode >= 500 {
-                throw LLMError.apiError("Server error (HTTP \(httpResponse.statusCode)). The API may be experiencing issues. Try again in a moment.")
+                throw LLMError.serverError(httpResponse.statusCode)
             }
             throw LLMError.apiError("HTTP \(httpResponse.statusCode): \(errorBody.prefix(500))")
         }
@@ -305,6 +423,8 @@ final class LLMService: @unchecked Sendable {
         model: String,
         apiKey: String,
         systemPrompt: String,
+        temperature: Double? = nil,
+        maxTokens: Int = 8192,
         onChunk: @escaping @Sendable (StreamChunk) -> Void,
         baseURL: String
     ) async throws -> LLMResponse {
@@ -321,8 +441,9 @@ final class LLMService: @unchecked Sendable {
         var body: [String: Any] = [
             "model": model,
             "stream": true,
-            "max_tokens": 8192,
+            "max_tokens": maxTokens,
         ]
+        if let temperature { body["temperature"] = temperature }
 
         // Build OpenAI-format messages (system + user/assistant/tool)
         body["messages"] = buildOpenAIMessages(messages, systemPrompt: systemPrompt)
@@ -352,7 +473,7 @@ final class LLMService: @unchecked Sendable {
             if httpResponse.statusCode == 401 { throw LLMError.unauthorized }
             if httpResponse.statusCode == 429 { throw LLMError.rateLimited }
             if httpResponse.statusCode >= 500 {
-                throw LLMError.apiError("Server error (HTTP \(httpResponse.statusCode)). The API may be experiencing issues. Try again in a moment.")
+                throw LLMError.serverError(httpResponse.statusCode)
             }
             throw LLMError.apiError("HTTP \(httpResponse.statusCode): \(errorBody.prefix(500))")
         }
@@ -607,6 +728,8 @@ extension LLMService {
         model: String,
         apiKey: String,
         systemPrompt: String,
+        temperature: Double? = nil,
+        maxTokens: Int = 8192,
         onChunk: @escaping @Sendable (StreamChunk) -> Void
     ) async throws -> LLMResponse {
         let urlStr = "https://generativelanguage.googleapis.com/v1beta/models/\(model):streamGenerateContent?alt=sse&key=\(apiKey)"
@@ -663,9 +786,9 @@ extension LLMService {
         body["contents"] = contents
 
         // Generation config
-        body["generationConfig"] = [
-            "maxOutputTokens": 8192
-        ]
+        var genConfig: [String: Any] = ["maxOutputTokens": maxTokens]
+        if let temperature { genConfig["temperature"] = temperature }
+        body["generationConfig"] = genConfig
 
         // Convert tools to Gemini format
         if let tools, !tools.isEmpty {
@@ -692,7 +815,7 @@ extension LLMService {
             if httpResponse.statusCode == 401 || httpResponse.statusCode == 403 { throw LLMError.unauthorized }
             if httpResponse.statusCode == 429 { throw LLMError.rateLimited }
             if httpResponse.statusCode >= 500 {
-                throw LLMError.apiError("Gemini server error (HTTP \(httpResponse.statusCode)).")
+                throw LLMError.serverError(httpResponse.statusCode)
             }
             throw LLMError.apiError("Gemini HTTP \(httpResponse.statusCode): \(errorBody.prefix(500))")
         }

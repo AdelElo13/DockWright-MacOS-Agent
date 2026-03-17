@@ -1,6 +1,123 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
+// MARK: - Localized Empty State Strings
+
+/// Provides localized strings for the empty chat state based on the app language setting.
+enum EmptyStateStrings {
+    private static var lang: String { VoiceService.effectiveLanguage }
+    private static var isNL: Bool { lang.hasPrefix("nl") }
+    private static var isDE: Bool { lang.hasPrefix("de") }
+    private static var isFR: Bool { lang.hasPrefix("fr") }
+    private static var isES: Bool { lang.hasPrefix("es") }
+
+    static var title: String {
+        if isNL { return "Waarmee kan ik je helpen?" }
+        if isDE { return "Wie kann ich dir helfen?" }
+        if isFR { return "Comment puis-je vous aider ?" }
+        if isES { return "¿En qué puedo ayudarte?" }
+        return "What can I help you with?"
+    }
+    static var checkEmails: String {
+        if isNL { return "Check mijn e-mails" }
+        if isDE { return "E-Mails prüfen" }
+        if isFR { return "Vérifier mes e-mails" }
+        if isES { return "Revisar mis correos" }
+        return "Check my emails"
+    }
+    static var calendar: String {
+        if isNL { return "Wat staat er op mijn agenda?" }
+        if isDE { return "Was steht im Kalender?" }
+        if isFR { return "Mon calendrier ?" }
+        if isES { return "¿Qué hay en mi calendario?" }
+        return "What's on my calendar?"
+    }
+    static var reminders: String {
+        if isNL { return "Toon mijn herinneringen" }
+        if isDE { return "Erinnerungen anzeigen" }
+        if isFR { return "Mes rappels" }
+        if isES { return "Mis recordatorios" }
+        return "Show my reminders"
+    }
+    static var playing: String {
+        if isNL { return "Wat speelt er?" }
+        if isDE { return "Was läuft?" }
+        if isFR { return "Qu'est-ce qui joue ?" }
+        if isES { return "¿Qué suena?" }
+        return "What's playing?"
+    }
+    static var screenshot: String {
+        if isNL { return "Maak een screenshot" }
+        if isDE { return "Screenshot machen" }
+        if isFR { return "Capture d'écran" }
+        if isES { return "Tomar captura" }
+        return "Take a screenshot"
+    }
+    static var clipboard: String {
+        if isNL { return "Lees mijn klembord" }
+        if isDE { return "Zwischenablage lesen" }
+        if isFR { return "Lire le presse-papiers" }
+        if isES { return "Leer portapapeles" }
+        return "Read my clipboard"
+    }
+    static var contacts: String {
+        if isNL { return "Zoek contacten" }
+        if isDE { return "Kontakte suchen" }
+        if isFR { return "Chercher contacts" }
+        if isES { return "Buscar contactos" }
+        return "Search contacts"
+    }
+    static var notes: String {
+        if isNL { return "Toon mijn notities" }
+        if isDE { return "Notizen anzeigen" }
+        if isFR { return "Mes notes" }
+        if isES { return "Mis notas" }
+        return "Show my notes"
+    }
+    static var battery: String {
+        if isNL { return "Batterijstatus" }
+        if isDE { return "Akkustatus" }
+        if isFR { return "État de la batterie" }
+        if isES { return "Estado de batería" }
+        return "Battery status"
+    }
+    static var goals: String {
+        if isNL { return "Toon mijn doelen" }
+        if isDE { return "Meine Ziele" }
+        if isFR { return "Mes objectifs" }
+        if isES { return "Mis metas" }
+        return "Show my goals"
+    }
+    static var browser: String {
+        if isNL { return "Wat staat er in mijn browser?" }
+        if isDE { return "Was ist im Browser?" }
+        if isFR { return "Mon navigateur ?" }
+        if isES { return "¿Qué hay en mi navegador?" }
+        return "What's in my browser?"
+    }
+    static var systemInfo: String {
+        if isNL { return "Systeeminfo" }
+        if isDE { return "Systeminfo" }
+        if isFR { return "Infos système" }
+        if isES { return "Info del sistema" }
+        return "System info"
+    }
+    static var createSkill: String {
+        if isNL { return "Maak een skill" }
+        if isDE { return "Skill erstellen" }
+        if isFR { return "Créer une compétence" }
+        if isES { return "Crear habilidad" }
+        return "Create a skill"
+    }
+    static var dropHint: String {
+        if isNL { return "Sleep afbeeldingen of bestanden hierheen" }
+        if isDE { return "Bilder oder Dateien hierher ziehen" }
+        if isFR { return "Déposez des images ou fichiers ici" }
+        if isES { return "Arrastra imágenes o archivos aquí" }
+        return "Drop images or files to include them"
+    }
+}
+
 /// Main chat view with message list + input, drag & drop support, and agent mode indicator.
 struct ChatView: View {
     @Bindable var appState: AppState
@@ -71,6 +188,9 @@ struct ChatView: View {
                         await appState.executeSlashCommand(command)
                     }
                 },
+                onClearImages: {
+                    appState.pendingImages.removeAll()
+                },
                 showSlashCommands: $appState.showSlashCommands,
                 slashFilter: $appState.slashFilter,
                 slashCommands: appState.filteredSlashCommands,
@@ -123,6 +243,8 @@ struct ChatView: View {
 
     // MARK: - Message List
 
+    @State private var autoScrollTask: Task<Void, Never>?
+
     private var messageList: some View {
         ScrollViewReader { proxy in
             ScrollView {
@@ -132,29 +254,42 @@ struct ChatView: View {
                             .id(message.id)
                     }
                 }
-                .padding(.vertical, DockwrightTheme.Spacing.lg)
+                .padding(.top, DockwrightTheme.Spacing.lg)
+                .padding(.bottom, DockwrightTheme.Spacing.md)
             }
             .onChange(of: appState.currentConversation.messages.count) {
                 scrollToBottom(proxy: proxy)
             }
-            .onChange(of: appState.streamingText) {
-                throttledScrollToBottom(proxy: proxy)
+            .onChange(of: appState.isProcessing) { _, processing in
+                if processing {
+                    startAutoScroll(proxy: proxy)
+                } else {
+                    stopAutoScroll()
+                    scrollToBottom(proxy: proxy)
+                }
             }
         }
     }
 
-    /// Throttled scroll — only fires every 200ms to prevent UI jank during streaming.
-    @State private var lastScrollTime: Date = .distantPast
-    private func throttledScrollToBottom(proxy: ScrollViewProxy) {
-        let now = Date()
-        guard now.timeIntervalSince(lastScrollTime) > 0.2 else { return }
-        lastScrollTime = now
-        scrollToBottom(proxy: proxy)
+    /// Start a periodic scroll while streaming (every 400ms).
+    private func startAutoScroll(proxy: ScrollViewProxy) {
+        stopAutoScroll()
+        autoScrollTask = Task { @MainActor in
+            while !Task.isCancelled {
+                scrollToBottom(proxy: proxy)
+                try? await Task.sleep(nanoseconds: 400_000_000)
+            }
+        }
+    }
+
+    private func stopAutoScroll() {
+        autoScrollTask?.cancel()
+        autoScrollTask = nil
     }
 
     private func scrollToBottom(proxy: ScrollViewProxy) {
         if let lastId = appState.currentConversation.messages.last?.id {
-            withAnimation(.easeOut(duration: 0.2)) {
+            withAnimation(.easeOut(duration: 0.15)) {
                 proxy.scrollTo(lastId, anchor: .bottom)
             }
         }
@@ -185,32 +320,32 @@ struct ChatView: View {
                     .frame(width: 48, height: 48)
             }
 
-            Text("What can I help you with?")
+            Text(EmptyStateStrings.title)
                 .font(DockwrightTheme.Typography.displayMedium)
-                .foregroundStyle(.white)
+                .foregroundStyle(.primary)
 
             // Suggestion chips
             VStack(spacing: DockwrightTheme.Spacing.sm) {
                 HStack(spacing: DockwrightTheme.Spacing.sm) {
-                    suggestionChip("Check my emails", icon: "envelope")
-                    suggestionChip("What's on my calendar?", icon: "calendar")
-                    suggestionChip("Show my reminders", icon: "checklist")
+                    suggestionChip(EmptyStateStrings.checkEmails, icon: "envelope")
+                    suggestionChip(EmptyStateStrings.calendar, icon: "calendar")
+                    suggestionChip(EmptyStateStrings.reminders, icon: "checklist")
                 }
                 HStack(spacing: DockwrightTheme.Spacing.sm) {
-                    suggestionChip("What's playing?", icon: "music.note")
-                    suggestionChip("Take a screenshot", icon: "camera.viewfinder")
-                    suggestionChip("Read my clipboard", icon: "doc.on.clipboard")
+                    suggestionChip(EmptyStateStrings.playing, icon: "music.note")
+                    suggestionChip(EmptyStateStrings.screenshot, icon: "camera.viewfinder")
+                    suggestionChip(EmptyStateStrings.clipboard, icon: "doc.on.clipboard")
                 }
                 HStack(spacing: DockwrightTheme.Spacing.sm) {
-                    suggestionChip("Search contacts", icon: "person.crop.circle")
-                    suggestionChip("Show my notes", icon: "note.text")
-                    suggestionChip("Battery status", icon: "battery.100")
+                    suggestionChip(EmptyStateStrings.contacts, icon: "person.crop.circle")
+                    suggestionChip(EmptyStateStrings.notes, icon: "note.text")
+                    suggestionChip(EmptyStateStrings.battery, icon: "battery.100")
                 }
                 HStack(spacing: DockwrightTheme.Spacing.sm) {
-                    suggestionChip("Show my goals", icon: "target")
-                    suggestionChip("What's in my browser?", icon: "safari")
-                    suggestionChip("System info", icon: "desktopcomputer")
-                    suggestionChip("Create a skill", icon: "wand.and.stars")
+                    suggestionChip(EmptyStateStrings.goals, icon: "target")
+                    suggestionChip(EmptyStateStrings.browser, icon: "safari")
+                    suggestionChip(EmptyStateStrings.systemInfo, icon: "desktopcomputer")
+                    suggestionChip(EmptyStateStrings.createSkill, icon: "wand.and.stars")
                 }
             }
 
@@ -219,7 +354,7 @@ struct ChatView: View {
                 Image(systemName: "arrow.down.doc")
                     .font(.caption)
                     .foregroundStyle(.quaternary)
-                Text("Drop images or files to include them")
+                Text(EmptyStateStrings.dropHint)
                     .font(DockwrightTheme.Typography.caption)
                     .foregroundStyle(.quaternary)
             }
@@ -247,7 +382,7 @@ struct ChatView: View {
             .clipShape(Capsule())
             .overlay(
                 Capsule()
-                    .stroke(Color.white.opacity(DockwrightTheme.Opacity.borderSubtle), lineWidth: 0.5)
+                    .stroke(Color.primary.opacity(DockwrightTheme.Opacity.borderSubtle), lineWidth: 0.5)
             )
         }
         .buttonStyle(.plain)
@@ -264,6 +399,11 @@ struct ChatView: View {
             appState.voiceState = .idle
             dictationPollTask?.cancel()
             dictationPollTask = nil
+            return
+        }
+        // Respect user's "Enable Voice Mode" preference toggle (same check as AppState.startVoice)
+        guard UserDefaults.standard.object(forKey: "voiceEnabled") as? Bool ?? true else {
+            appState.appendError("Voice mode is disabled. Enable it in Settings → Voice.")
             return
         }
         // Start dictation

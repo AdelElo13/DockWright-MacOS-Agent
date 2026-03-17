@@ -1,23 +1,34 @@
 import SwiftUI
 import ServiceManagement
 
-/// General app settings: launch behavior, appearance, data.
+/// General app settings — all bindings read/write through AppPreferences (single source of truth).
 struct GeneralSettingsView: View {
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
     @State private var showDockIcon = !UserDefaults.standard.bool(forKey: "hideDockIcon")
-    @State private var alwaysOnTop = UserDefaults.standard.bool(forKey: "alwaysOnTop")
-    @State private var showMenuBarExtra = UserDefaults.standard.bool(forKey: "showMenuBarExtra")
-    @State private var theme = UserDefaults.standard.string(forKey: "appearance") ?? "system"
-    @State private var fontSize = UserDefaults.standard.object(forKey: "chatFontSize") as? Double ?? 14.0
-    @State private var sidebarDefault = UserDefaults.standard.object(forKey: "sidebarDefaultOpen") as? Bool ?? true
-    @State private var sendWithReturn = UserDefaults.standard.object(forKey: "sendWithReturn") as? Bool ?? true
-    @State private var streamResponses = UserDefaults.standard.object(forKey: "streamResponses") as? Bool ?? true
-    @State private var showTokenCost = UserDefaults.standard.object(forKey: "showTokenCost") as? Bool ?? true
-    @State private var confirmDeletions = UserDefaults.standard.object(forKey: "confirmDeletions") as? Bool ?? true
     @State private var conversationCount = 0
+    @AppStorage("appearance") private var appearanceSetting: String = "system"
+    @State private var appLanguage = VoiceService.effectiveLanguage
+
+    private var prefs: AppPreferences { AppPreferences.shared }
 
     var body: some View {
         Form {
+            Section("Language") {
+                Picker("App language", selection: $appLanguage) {
+                    ForEach(VoiceService.supportedSTTLanguages, id: \.id) { lang in
+                        Text(lang.label).tag(lang.id)
+                    }
+                }
+                .onChange(of: appLanguage) { _, newValue in
+                    UserDefaults.standard.set(newValue, forKey: "voice.sttLanguage")
+                    VoiceService.shared.sttLanguage = newValue
+                }
+
+                Text("Controls the language for AI responses, voice recognition, and text-to-speech.")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
+
             Section("Startup") {
                 Toggle("Launch at login", isOn: $launchAtLogin)
                     .onChange(of: launchAtLogin) { _, newValue in
@@ -32,62 +43,62 @@ struct GeneralSettingsView: View {
                         }
                     }
 
-                Toggle("Show in menu bar", isOn: $showMenuBarExtra)
-                    .onChange(of: showMenuBarExtra) { _, v in
-                        UserDefaults.standard.set(v, forKey: "showMenuBarExtra")
-                    }
+                Toggle("Show in menu bar", isOn: Binding(
+                    get: { prefs.showMenuBarExtra },
+                    set: { prefs.showMenuBarExtra = $0 }
+                ))
 
-                Toggle("Float window on top", isOn: $alwaysOnTop)
-                    .onChange(of: alwaysOnTop) { _, v in
-                        UserDefaults.standard.set(v, forKey: "alwaysOnTop")
-                    }
+                Toggle("Float window on top", isOn: Binding(
+                    get: { prefs.alwaysOnTop },
+                    set: { prefs.alwaysOnTop = $0 }
+                ))
             }
 
             Section("Appearance") {
-                Picker("Theme", selection: $theme) {
+                Picker("Theme", selection: $appearanceSetting) {
                     Text("System").tag("system")
                     Text("Dark").tag("dark")
                     Text("Light").tag("light")
                 }
-                .onChange(of: theme) { _, v in
-                    UserDefaults.standard.set(v, forKey: "appearance")
+                .onChange(of: appearanceSetting) { _, newVal in
+                    prefs.appearance = newVal
                 }
 
                 VStack(alignment: .leading) {
-                    Text("Chat font size: \(Int(fontSize))pt")
+                    Text("Chat font size: \(Int(prefs.chatFontSize))pt")
                         .font(.caption)
-                    Slider(value: $fontSize, in: 11...20, step: 1)
-                        .onChange(of: fontSize) { _, v in
-                            UserDefaults.standard.set(v, forKey: "chatFontSize")
-                        }
+                    Slider(value: Binding(
+                        get: { prefs.chatFontSize },
+                        set: { prefs.chatFontSize = $0 }
+                    ), in: 11...20, step: 1)
                 }
             }
 
             Section("Behavior") {
-                Toggle("Show sidebar on launch", isOn: $sidebarDefault)
-                    .onChange(of: sidebarDefault) { _, v in
-                        UserDefaults.standard.set(v, forKey: "sidebarDefaultOpen")
-                    }
+                Toggle("Show sidebar on launch", isOn: Binding(
+                    get: { prefs.sidebarDefaultOpen },
+                    set: { prefs.sidebarDefaultOpen = $0 }
+                ))
 
-                Toggle("Send message with Return", isOn: $sendWithReturn)
-                    .onChange(of: sendWithReturn) { _, v in
-                        UserDefaults.standard.set(v, forKey: "sendWithReturn")
-                    }
+                Toggle("Send message with Return", isOn: Binding(
+                    get: { prefs.sendWithReturn },
+                    set: { prefs.sendWithReturn = $0 }
+                ))
 
-                Toggle("Stream responses", isOn: $streamResponses)
-                    .onChange(of: streamResponses) { _, v in
-                        UserDefaults.standard.set(v, forKey: "streamResponses")
-                    }
+                Toggle("Stream responses", isOn: Binding(
+                    get: { prefs.streamResponses },
+                    set: { prefs.streamResponses = $0 }
+                ))
 
-                Toggle("Show token cost in toolbar", isOn: $showTokenCost)
-                    .onChange(of: showTokenCost) { _, v in
-                        UserDefaults.standard.set(v, forKey: "showTokenCost")
-                    }
+                Toggle("Show token cost in toolbar", isOn: Binding(
+                    get: { prefs.showTokenCost },
+                    set: { prefs.showTokenCost = $0 }
+                ))
 
-                Toggle("Confirm before deleting conversations", isOn: $confirmDeletions)
-                    .onChange(of: confirmDeletions) { _, v in
-                        UserDefaults.standard.set(v, forKey: "confirmDeletions")
-                    }
+                Toggle("Confirm before deleting conversations", isOn: Binding(
+                    get: { prefs.confirmDeletions },
+                    set: { prefs.confirmDeletions = $0 }
+                ))
             }
 
             Section("Data") {

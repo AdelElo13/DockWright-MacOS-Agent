@@ -7,7 +7,9 @@ struct SidebarView: View {
     @State private var searchQuery = ""
     @State private var showSearch = false
     @State private var hoveredConversationId: String?
-    @State private var showSkillsAutomations = false
+    @State private var showDeleteConfirm = false
+    @State private var pendingDeleteId: String?
+    // showSkillsAutomations moved to appState for overlay dismiss
 
     var body: some View {
         VStack(spacing: 0) {
@@ -18,11 +20,11 @@ struct SidebarView: View {
                 HStack(spacing: DockwrightTheme.Spacing.sm) {
                     Image(systemName: "square.and.pencil")
                         .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(.primary)
                         .frame(width: 20, alignment: .center)
                     Text("New thread")
                         .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(.primary)
                     Spacer()
                 }
                 .padding(.vertical, DockwrightTheme.Spacing.xs)
@@ -37,7 +39,7 @@ struct SidebarView: View {
             HStack {
                 Text("Threads")
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(Color.white.opacity(0.4))
+                    .foregroundStyle(Color.primary.opacity(0.4))
                 Spacer()
                 Button {
                     withAnimation(.easeInOut(duration: 0.15)) {
@@ -47,7 +49,7 @@ struct SidebarView: View {
                 } label: {
                     Image(systemName: "magnifyingglass")
                         .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(Color.white.opacity(0.4))
+                        .foregroundStyle(Color.primary.opacity(0.4))
                 }
                 .buttonStyle(.plain)
             }
@@ -105,18 +107,17 @@ struct SidebarView: View {
             Divider().opacity(0.2)
 
             sidebarButton(icon: "target", label: "Goals") {
-                Task { await appState.sendMessage("Show me my goals and today's daily actions") }
+                appState.showGoals = true
             } badge: {
-                let goalCount = appState.goalStore.listGoals(activeOnly: true).count
-                if goalCount > 0 {
-                    Text("\(goalCount)")
+                if appState.goalCount > 0 {
+                    Text("\(appState.goalCount)")
                         .font(DockwrightTheme.Typography.captionMono)
                         .foregroundStyle(.tertiary)
                 }
             }
 
-            sidebarButton(icon: "wand.and.stars", label: "Skills & Automations") {
-                showSkillsAutomations = true
+            sidebarButton(icon: "wand.and.stars", label: "Skills") {
+                appState.showSkillsAutomations = true
             } badge: {
                 let skillCount = appState.skillLoader.allSkills.count
                 if skillCount > 0 {
@@ -126,12 +127,11 @@ struct SidebarView: View {
                 }
             }
 
-            sidebarButton(icon: "clock.arrow.circlepath", label: "Scheduler") {
+            sidebarButton(icon: "clock.arrow.circlepath", label: "Cron Jobs") {
                 appState.showScheduler.toggle()
             } badge: {
-                let jobCount = appState.cronStore.listAll().count
-                if jobCount > 0 {
-                    Text("\(jobCount)")
+                if appState.cronJobCount > 0 {
+                    Text("\(appState.cronJobCount)")
                         .font(DockwrightTheme.Typography.captionMono)
                         .foregroundStyle(.tertiary)
                 }
@@ -156,9 +156,16 @@ struct SidebarView: View {
         }
         .frame(maxHeight: .infinity)
         .background(DockwrightTheme.Surface.sidebar)
-        .sheet(isPresented: $showSkillsAutomations) {
-            SkillsAutomationsView(appState: appState)
-                .frame(minWidth: 560, minHeight: 520)
+        .alert("Delete Conversation?", isPresented: $showDeleteConfirm) {
+            Button("Cancel", role: .cancel) { pendingDeleteId = nil }
+            Button("Delete", role: .destructive) {
+                if let id = pendingDeleteId {
+                    appState.deleteConversation(id)
+                    pendingDeleteId = nil
+                }
+            }
+        } message: {
+            Text("This conversation will be permanently deleted.")
         }
     }
 
@@ -174,18 +181,18 @@ struct SidebarView: View {
             HStack(spacing: 6) {
                 Text(conv.title)
                     .font(.system(size: 14, weight: isActive ? .medium : .regular))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(.primary)
                     .lineLimit(1)
                 Spacer(minLength: 0)
                 Text(relativeDate(conv.updatedAt))
                     .font(.system(size: 11))
-                    .foregroundStyle(Color.white.opacity(0.3))
+                    .foregroundStyle(Color.primary.opacity(0.3))
             }
             .padding(.vertical, 8)
             .padding(.horizontal, DockwrightTheme.Spacing.md)
             .background(
                 RoundedRectangle(cornerRadius: DockwrightTheme.Radius.sm)
-                    .fill(isActive ? Color.white.opacity(0.08) : Color.clear)
+                    .fill(isActive ? Color.primary.opacity(0.08) : Color.clear)
             )
             .contentShape(Rectangle())
         }
@@ -194,7 +201,12 @@ struct SidebarView: View {
         .onHover { h in hoveredConversationId = h ? conv.id : nil }
         .contextMenu {
             Button("Delete", role: .destructive) {
-                appState.deleteConversation(conv.id)
+                if AppPreferences.shared.confirmDeletions {
+                    pendingDeleteId = conv.id
+                    showDeleteConfirm = true
+                } else {
+                    appState.deleteConversation(conv.id)
+                }
             }
         }
     }
@@ -260,10 +272,10 @@ struct SidebarView: View {
             HStack(spacing: DockwrightTheme.Spacing.sm) {
                 Image(systemName: icon)
                     .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(.primary)
                 Text(label)
                     .font(DockwrightTheme.Typography.body)
-                    .foregroundStyle(.white)
+                    .foregroundStyle(.primary)
                 Spacer()
                 badge()
             }

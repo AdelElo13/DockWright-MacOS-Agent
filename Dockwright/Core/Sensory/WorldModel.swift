@@ -109,30 +109,32 @@ nonisolated final class WorldModel: @unchecked Sendable {
     }
 
     func updateSystemState() {
-        queue.async(flags: .barrier) {
-            // Frontmost app
-            if let frontApp = NSWorkspace.shared.frontmostApplication {
-                self.state.frontmostApp = frontApp.localizedName ?? ""
-                self.state.frontmostAppBundleID = frontApp.bundleIdentifier ?? ""
-            }
-
-            // Open applications
-            self.state.openApplications = NSWorkspace.shared.runningApplications
+        Task { @MainActor in
+            // All AppKit calls guaranteed on main thread
+            let frontApp = NSWorkspace.shared.frontmostApplication
+            let frontName = frontApp?.localizedName ?? ""
+            let frontBundle = frontApp?.bundleIdentifier ?? ""
+            let openApps = NSWorkspace.shared.runningApplications
                 .filter { $0.activationPolicy == .regular }
                 .compactMap { $0.localizedName }
-
-            // Dark mode
             let appearance = NSApp?.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua])
-            self.state.isDarkMode = (appearance == .darkAqua)
+            let isDark = (appearance == .darkAqua)
 
-            // Battery
-            self.updateBatteryInfo()
+            self.queue.async(flags: .barrier) {
+                self.state.frontmostApp = frontName
+                self.state.frontmostAppBundleID = frontBundle
+                self.state.openApplications = openApps
+                self.state.isDarkMode = isDark
 
-            // Time
-            self.state.currentHour = Calendar.current.component(.hour, from: Date())
+                // Battery
+                self.updateBatteryInfo()
 
-            // Frontmost document path detection
-            self.detectFrontmostDocument()
+                // Time
+                self.state.currentHour = Calendar.current.component(.hour, from: Date())
+
+                // Frontmost document path detection
+                self.detectFrontmostDocument()
+            }
         }
     }
 

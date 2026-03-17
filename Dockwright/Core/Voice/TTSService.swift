@@ -32,6 +32,37 @@ final class TTSService: NSObject, AVSpeechSynthesizerDelegate {
     var elevenLabsVoices: [(id: String, label: String)] = []
     var isLoadingVoices = false
 
+    // MARK: - System TTS Voice
+
+    var systemVoiceId: String = UserDefaults.standard.string(forKey: "tts.systemVoice") ?? "" {
+        didSet { UserDefaults.standard.set(systemVoiceId, forKey: "tts.systemVoice") }
+    }
+
+    /// Novelty/joke voices to hide from the picker.
+    private static let noveltyVoices: Set<String> = [
+        "Albert", "Bad News", "Bahh", "Bells", "Boing", "Bubbles", "Cellos",
+        "Good News", "Jester", "Organ", "Superstar", "Trinoids", "Whisper",
+        "Wobble", "Zarvox"
+    ]
+
+    /// Available system voices for a given language, filtered and sorted by quality.
+    static func systemVoices(for language: String) -> [(id: String, label: String)] {
+        let langPrefix = String(language.prefix(2)) // "nl" from "nl-NL"
+        return AVSpeechSynthesisVoice.speechVoices()
+            .filter { $0.language.hasPrefix(langPrefix) && !noveltyVoices.contains($0.name) }
+            .sorted { lhs, rhs in
+                if lhs.quality != rhs.quality { return lhs.quality.rawValue > rhs.quality.rawValue }
+                return lhs.name < rhs.name
+            }
+            .map { v in
+                // Strip existing quality suffix from name (e.g. "Xander (Enhanced)" → "Xander")
+                let baseName = v.name.replacingOccurrences(of: " \\(Enhanced\\)", with: "", options: .regularExpression)
+                    .replacingOccurrences(of: " \\(Premium\\)", with: "", options: .regularExpression)
+                let q = v.quality == .enhanced ? " (Enhanced)" : v.quality == .premium ? " (Premium)" : ""
+                return (id: v.identifier, label: "\(baseName)\(q)")
+            }
+    }
+
     func fetchElevenLabsVoices() {
         guard let apiKey = KeychainHelper.read(key: "elevenlabs_api_key"), !apiKey.isEmpty else { return }
         guard !isLoadingVoices else { return }
@@ -51,7 +82,11 @@ final class TTSService: NSObject, AVSpeechSynthesizerDelegate {
 
             let parsed: [(id: String, label: String)] = voices.compactMap { v in
                 guard let id = v["voice_id"] as? String, let name = v["name"] as? String else { return nil }
-                return (id: id, label: name)
+                let category = v["category"] as? String ?? ""
+                // On free plan, only "premade" and "cloned" voices work via API
+                // "professional", "famous", and library voices return 402
+                let suffix = category == "premade" ? "" : category == "cloned" ? " (cloned)" : " (paid)"
+                return (id: id, label: "\(name)\(suffix)")
             }.sorted { $0.label < $1.label }
 
             await MainActor.run {
@@ -68,6 +103,7 @@ final class TTSService: NSObject, AVSpeechSynthesizerDelegate {
 
     // MARK: - Callbacks
     var onSpeakingComplete: (() -> Void)?
+    var lastError: String?
 
     // MARK: - Configuration
     var rate: Float = 0.52
@@ -193,8 +229,14 @@ final class TTSService: NSObject, AVSpeechSynthesizerDelegate {
         utterance.preUtteranceDelay = 0.0
         utterance.postUtteranceDelay = 0.05
 
-        if let voice = AVSpeechSynthesisVoice(language: "en-US") {
+        // Use selected system voice, or fall back to STT language
+        if !systemVoiceId.isEmpty, let voice = AVSpeechSynthesisVoice(identifier: systemVoiceId) {
             utterance.voice = voice
+        } else {
+            let lang = UserDefaults.standard.string(forKey: "voice.sttLanguage") ?? "en-US"
+            if let voice = AVSpeechSynthesisVoice(language: lang) {
+                utterance.voice = voice
+            }
         }
 
         synthesizer.speak(utterance)
@@ -202,15 +244,18 @@ final class TTSService: NSObject, AVSpeechSynthesizerDelegate {
 
     private func speakWithElevenLabs(_ text: String) {
         guard let apiKey = KeychainHelper.read(key: "elevenlabs_api_key"), !apiKey.isEmpty else {
+            log.warning("[TTS] No ElevenLabs API key — falling back to system TTS")
             speakWithSystem(text)
             return
         }
 
         let voiceId = elevenLabsVoiceId
+        log.info("[TTS] ElevenLabs: voiceId=\(voiceId), text=\(text.prefix(40))")
         Task {
             do {
                 guard let encoded = voiceId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
                       let url = URL(string: "https://api.elevenlabs.io/v1/text-to-speech/\(encoded)") else {
+                    log.error("[TTS] ElevenLabs: bad URL for voiceId=\(voiceId)")
                     await MainActor.run { self.speakWithSystem(text) }
                     return
                 }
@@ -223,36 +268,52 @@ final class TTSService: NSObject, AVSpeechSynthesizerDelegate {
 
                 let body: [String: Any] = [
                     "text": text,
-                    "model_id": "eleven_turbo_v2_5",
+                    "model_id": "eleven_multilingual_v2",
                     "voice_settings": ["stability": 0.5, "similarity_boost": 0.75]
                 ]
                 request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
                 let (data, response) = try await URLSession.shared.data(for: request)
                 guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+                    let http = response as? HTTPURLResponse
+                    let bodyStr = String(data: data, encoding: .utf8) ?? "n/a"
+                    log.error("[TTS] ElevenLabs API error: status=\(http?.statusCode ?? -1) body=\(bodyStr.prefix(200))")
+                    // Parse error message for UI
+                    if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                       let detail = json["detail"] as? [String: Any],
+                       let msg = detail["message"] as? String {
+                        await MainActor.run { self.lastError = msg }
+                    } else {
+                        await MainActor.run { self.lastError = "ElevenLabs error (HTTP \(http?.statusCode ?? -1))" }
+                    }
                     await MainActor.run { self.speakWithSystem(text) }
                     return
                 }
 
+                log.info("[TTS] ElevenLabs: got \(data.count) bytes audio")
+
                 let tempURL = FileManager.default.temporaryDirectory
                     .appendingPathComponent("dw_tts_\(UUID().uuidString).mp3")
                 try data.write(to: tempURL)
-                defer { try? FileManager.default.removeItem(at: tempURL) }
 
                 let audioFile = try AVAudioFile(forReading: tempURL)
                 guard let buffer = AVAudioPCMBuffer(
                     pcmFormat: audioFile.processingFormat,
                     frameCapacity: AVAudioFrameCount(audioFile.length)
                 ) else {
+                    log.error("[TTS] ElevenLabs: failed to create PCM buffer")
+                    try? FileManager.default.removeItem(at: tempURL)
                     await MainActor.run { self.speakWithSystem(text) }
                     return
                 }
                 try audioFile.read(into: buffer)
+                try? FileManager.default.removeItem(at: tempURL)
 
                 await MainActor.run {
                     self.playElevenLabsBuffer(buffer, format: audioFile.processingFormat)
                 }
             } catch {
+                log.error("[TTS] ElevenLabs exception: \(error.localizedDescription)")
                 await MainActor.run { self.speakWithSystem(text) }
             }
         }

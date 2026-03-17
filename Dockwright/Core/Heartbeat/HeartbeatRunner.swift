@@ -7,7 +7,7 @@ import UserNotifications
 /// within a 24-hour window.
 final class HeartbeatRunner: @unchecked Sendable {
     private let logger = Logger(subsystem: "com.Aatje.Dockwright", category: "Heartbeat")
-    private let channel: NotificationChannel
+    private let channel: MultiChannel
     private let cronStore: CronStore
     private let queue = DispatchQueue(label: "com.Aatje.Dockwright.Heartbeat", qos: .utility)
     private var timer: DispatchSourceTimer?
@@ -25,7 +25,7 @@ final class HeartbeatRunner: @unchecked Sendable {
     private var sentMessages: [String: Date] = [:]
     private let sentLock = NSLock()
 
-    init(channel: NotificationChannel, cronStore: CronStore) {
+    init(channel: MultiChannel, cronStore: CronStore) {
         self.channel = channel
         self.cronStore = cronStore
     }
@@ -163,12 +163,8 @@ final class HeartbeatRunner: @unchecked Sendable {
         }
 
         Task {
-            do {
-                try await channel.send(title: title, body: body)
-                logger.info("Heartbeat notification sent: \(title)")
-            } catch {
-                logger.error("Heartbeat notification failed: \(error.localizedDescription)")
-            }
+            await channel.broadcast(title: title, body: body, category: .scheduledTask)
+            logger.info("Heartbeat notification sent: \(title)")
         }
     }
 

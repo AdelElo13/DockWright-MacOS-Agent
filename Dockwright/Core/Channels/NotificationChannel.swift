@@ -25,33 +25,44 @@ final class NotificationChannel: DeliveryChannel, @unchecked Sendable {
         }
     }
 
+    /// DeliveryChannel protocol conformance (default sound behavior).
     func send(title: String, body: String) async throws {
-        // Ensure permission on first use
+        try await send(title: title, body: body, playSound: true)
+    }
+
+    /// Send a notification with optional sound control.
+    func send(title: String, body: String, playSound: Bool) async throws {
         if !permissionGranted {
             await requestPermission()
         }
 
         guard permissionGranted else {
             logger.warning("Notification not sent (permission denied): \(title)")
-            return
+            throw NotificationError.permissionDenied
         }
 
         let content = UNMutableNotificationContent()
-        content.title = String(title.prefix(256)) // Cap title length
-        content.body = String(body.prefix(4096))   // Cap body length
-        content.sound = .default
+        content.title = String(title.prefix(256))
+        content.body = String(body.prefix(4096))
+        content.sound = playSound ? .default : nil
 
         let request = UNNotificationRequest(
             identifier: UUID().uuidString,
             content: content,
-            trigger: nil  // Deliver immediately
+            trigger: nil
         )
 
-        do {
-            try await center.add(request)
-            logger.info("Notification sent: \(title)")
-        } catch {
-            logger.error("Failed to send notification: \(error.localizedDescription)")
+        try await center.add(request)
+        logger.info("Notification sent: \(title)")
+    }
+}
+
+enum NotificationError: LocalizedError {
+    case permissionDenied
+
+    var errorDescription: String? {
+        switch self {
+        case .permissionDenied: return "Notification permission denied"
         }
     }
 }

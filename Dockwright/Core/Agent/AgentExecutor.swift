@@ -39,9 +39,15 @@ final class AgentExecutor: @unchecked Sendable {
         let retryCount: Int
     }
 
-    // Config
-    let maxSteps = 20
-    let maxRetriesPerStep = 2
+    // Config — read from UserDefaults (wired to Agent Settings UI)
+    var maxSteps: Int {
+        let v = UserDefaults.standard.object(forKey: "agentMaxSteps") as? Int ?? 10
+        return max(1, min(v, 50))
+    }
+    var maxRetriesPerStep: Int {
+        let autoRetry = UserDefaults.standard.object(forKey: "agentAutoRetry") as? Bool ?? true
+        return autoRetry ? 2 : 0
+    }
 
     // State
     private var _state: AgentState = .idle

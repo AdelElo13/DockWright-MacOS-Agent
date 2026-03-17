@@ -2,16 +2,11 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 /// Advanced model parameters, system prompt, debug, and developer settings.
+/// All bindings read/write through AppPreferences (single source of truth).
 struct AdvancedSettingsView: View {
-    @State private var temperature: Double = UserDefaults.standard.object(forKey: "temperature") as? Double ?? 0.7
-    @State private var maxTokens: Int = UserDefaults.standard.object(forKey: "maxTokens") as? Int ?? 8192
-    @State private var topP: Double = UserDefaults.standard.object(forKey: "topP") as? Double ?? 1.0
-    @State private var customSystemPrompt = UserDefaults.standard.string(forKey: "customSystemPrompt") ?? ""
-    @State private var debugLogging = UserDefaults.standard.bool(forKey: "debugLogging")
-    @State private var showRawJSON = UserDefaults.standard.bool(forKey: "showRawJSON")
-    @State private var cacheResponses = UserDefaults.standard.object(forKey: "cacheResponses") as? Bool ?? true
-    @State private var cacheDurationHours = UserDefaults.standard.object(forKey: "cacheDurationHours") as? Int ?? 24
-    @State private var responseStyle = UserDefaults.standard.string(forKey: "responseStyle") ?? "balanced"
+    private var prefs: AppPreferences { AppPreferences.shared }
+
+    @State private var cacheCleared = false
 
     var body: some View {
         ScrollView {
@@ -21,34 +16,23 @@ struct AdvancedSettingsView: View {
                         HStack {
                             Text("Temperature")
                             Spacer()
-                            Text(String(format: "%.2f", temperature))
+                            Text(String(format: "%.2f", prefs.temperature))
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
-                        Slider(value: $temperature, in: 0...2, step: 0.05)
-                            .onChange(of: temperature) { _, v in
-                                UserDefaults.standard.set(v, forKey: "temperature")
-                            }
+                        Slider(value: Binding(
+                            get: { prefs.temperature },
+                            set: { prefs.temperature = $0 }
+                        ), in: 0...2, step: 0.05)
                         Text("Lower = more focused, higher = more creative")
                             .font(.caption)
                             .foregroundStyle(.tertiary)
                     }
 
-                    VStack(alignment: .leading) {
-                        HStack {
-                            Text("Top-P")
-                            Spacer()
-                            Text(String(format: "%.2f", topP))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        Slider(value: $topP, in: 0...1, step: 0.05)
-                            .onChange(of: topP) { _, v in
-                                UserDefaults.standard.set(v, forKey: "topP")
-                            }
-                    }
-
-                    Picker("Max tokens", selection: $maxTokens) {
+                    Picker("Max tokens", selection: Binding(
+                        get: { prefs.maxTokens },
+                        set: { prefs.maxTokens = $0 }
+                    )) {
                         Text("2,048").tag(2048)
                         Text("4,096").tag(4096)
                         Text("8,192").tag(8192)
@@ -57,22 +41,19 @@ struct AdvancedSettingsView: View {
                         Text("65,536").tag(65536)
                         Text("128,000").tag(128000)
                     }
-                    .onChange(of: maxTokens) { _, v in
-                        UserDefaults.standard.set(v, forKey: "maxTokens")
-                    }
                 }
 
                 Section("Response Style") {
-                    Picker("Default style", selection: $responseStyle) {
+                    Picker("Default style", selection: Binding(
+                        get: { prefs.responseStyle },
+                        set: { prefs.responseStyle = $0 }
+                    )) {
                         Text("Brief").tag("brief")
                         Text("Balanced").tag("balanced")
                         Text("Detailed").tag("detailed")
                         Text("Technical").tag("technical")
                     }
                     .pickerStyle(.segmented)
-                    .onChange(of: responseStyle) { _, v in
-                        UserDefaults.standard.set(v, forKey: "responseStyle")
-                    }
 
                     Text("Controls the verbosity and tone of AI responses")
                         .font(.caption)
@@ -80,54 +61,64 @@ struct AdvancedSettingsView: View {
                 }
 
                 Section("Custom System Prompt") {
-                    TextEditor(text: $customSystemPrompt)
-                        .font(.system(size: 12, design: .monospaced))
-                        .frame(minHeight: 80)
-                        .onChange(of: customSystemPrompt) { _, v in
-                            UserDefaults.standard.set(v, forKey: "customSystemPrompt")
-                        }
+                    TextEditor(text: Binding(
+                        get: { prefs.customSystemPrompt },
+                        set: { prefs.customSystemPrompt = $0 }
+                    ))
+                    .font(.system(size: 12, design: .monospaced))
+                    .frame(minHeight: 80)
 
                     Text("Appended to the default system prompt. Use this to personalize Dockwright's behavior.")
                         .font(.caption)
                         .foregroundStyle(.tertiary)
                 }
 
-                Section("Caching") {
-                    Toggle("Cache model registry responses", isOn: $cacheResponses)
-                        .onChange(of: cacheResponses) { _, v in
-                            UserDefaults.standard.set(v, forKey: "cacheResponses")
-                        }
+                Section("Web Search & Browsing") {
+                    Toggle("Headless browsing (no visible browser)", isOn: Binding(
+                        get: { prefs.headlessBrowsing },
+                        set: { prefs.headlessBrowsing = $0 }
+                    ))
 
-                    if cacheResponses {
-                        Picker("Cache duration", selection: $cacheDurationHours) {
-                            Text("1 hour").tag(1)
-                            Text("6 hours").tag(6)
-                            Text("12 hours").tag(12)
-                            Text("24 hours").tag(24)
-                            Text("48 hours").tag(48)
-                        }
-                        .onChange(of: cacheDurationHours) { _, v in
-                            UserDefaults.standard.set(v, forKey: "cacheDurationHours")
-                        }
-                    }
+                    Text("When ON, web searches and page fetches use headless Chrome or APIs. When OFF, opens a visible browser window.")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
 
-                    Button("Clear Model Cache") {
-                        UserDefaults.standard.removeObject(forKey: "modelRegistry.cache")
-                        UserDefaults.standard.removeObject(forKey: "modelRegistry.cacheTimestamp")
+                    HStack {
+                        Text("Brave Search API")
+                        Spacer()
+                        if KeychainHelper.exists(key: "brave_search_api_key") {
+                            Text("Configured")
+                                .font(.caption)
+                                .foregroundStyle(.green)
+                        } else {
+                            Text("Not set — add in API Keys tab")
+                                .font(.caption)
+                                .foregroundStyle(.orange)
+                        }
                     }
                 }
 
-                Section("Debug") {
-                    Toggle("Enable debug logging", isOn: $debugLogging)
-                        .onChange(of: debugLogging) { _, v in
-                            UserDefaults.standard.set(v, forKey: "debugLogging")
-                        }
+                Section("Model Cache") {
+                    Text("Model registry responses are cached for 24 hours to reduce API calls.")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
 
-                    Toggle("Show raw JSON in responses", isOn: $showRawJSON)
-                        .onChange(of: showRawJSON) { _, v in
-                            UserDefaults.standard.set(v, forKey: "showRawJSON")
+                    HStack {
+                        Button("Clear Model Cache") {
+                            UserDefaults.standard.removeObject(forKey: "ModelRegistry.cachedModels")
+                            UserDefaults.standard.removeObject(forKey: "ModelRegistry.cacheTimestamp")
+                            cacheCleared = true
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { cacheCleared = false }
                         }
+                        if cacheCleared {
+                            Text("Cleared!")
+                                .font(.caption)
+                                .foregroundStyle(.green)
+                        }
+                    }
+                }
 
+                Section("Diagnostics") {
                     Button("Export Logs") {
                         exportLogs()
                     }
@@ -150,9 +141,9 @@ struct AdvancedSettingsView: View {
             let logText = """
             Dockwright Debug Log Export
             Date: \(Date())
-            Model: \(UserDefaults.standard.string(forKey: "selectedModel") ?? "unknown")
-            Temperature: \(temperature)
-            Max Tokens: \(maxTokens)
+            Model: \(prefs.selectedModel)
+            Temperature: \(prefs.temperature)
+            Max Tokens: \(prefs.maxTokens)
             OS: \(ProcessInfo.processInfo.operatingSystemVersionString)
             """
             try? logText.write(to: url, atomically: true, encoding: .utf8)
@@ -163,7 +154,7 @@ struct AdvancedSettingsView: View {
         let info = """
         Dockwright v1.0
         macOS \(ProcessInfo.processInfo.operatingSystemVersionString)
-        Model: \(UserDefaults.standard.string(forKey: "selectedModel") ?? "unknown")
+        Model: \(prefs.selectedModel)
         Memory: \(ProcessInfo.processInfo.physicalMemory / 1_073_741_824) GB
         Processors: \(ProcessInfo.processInfo.processorCount)
         """

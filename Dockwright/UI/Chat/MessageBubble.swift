@@ -1,9 +1,14 @@
 import SwiftUI
 
-/// Renders a single chat message as a styled bubble.
+/// Renders a single chat message — ChatGPT-style layout:
+///   User: right-aligned dark pill
+///   Assistant: left-aligned plain text, no bubble
 struct MessageBubble: View {
     let message: ChatMessage
     @State private var isHovered = false
+
+    /// User-configurable chat font size from Settings → General.
+    private var chatFont: Font { .system(size: AppPreferences.shared.chatFontSize) }
 
     var body: some View {
         Group {
@@ -23,142 +28,123 @@ struct MessageBubble: View {
         }
     }
 
-    // MARK: - User Bubble
+    // MARK: - User Bubble (right-aligned dark pill)
 
     private var userBubble: some View {
-        HStack(alignment: .top, spacing: DockwrightTheme.Spacing.lg) {
-            Spacer(minLength: 60)
+        HStack {
+            Spacer(minLength: 80)
 
             Text(message.content)
-                .font(DockwrightTheme.Typography.body)
-                .foregroundStyle(.white)
+                .font(chatFont)
+                .foregroundStyle(.primary)
                 .textSelection(.enabled)
-                .padding(.horizontal, 14)
-                .padding(.vertical, DockwrightTheme.Spacing.lg)
-                .background(DockwrightTheme.userBubbleGradient)
-                .clipShape(BubbleShape(isUser: true))
-                .shadow(color: .black.opacity(DockwrightTheme.Opacity.tintSubtle), radius: 8, y: 2)
-                .frame(maxWidth: DockwrightTheme.Layout.maxBubbleWidth, alignment: .trailing)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .background(Color.primary.opacity(0.12))
+                .clipShape(RoundedRectangle(cornerRadius: 20))
                 .contextMenu {
                     Button { copyToClipboard(message.content) } label: {
                         Label("Copy", systemImage: "doc.on.doc")
                     }
                 }
-
-            // User avatar
-            ZStack {
-                Circle()
-                    .fill(Color.white.opacity(0.08))
-                    .frame(width: DockwrightTheme.Layout.avatarSize, height: DockwrightTheme.Layout.avatarSize)
-                Image(systemName: "person.fill")
-                    .font(DockwrightTheme.Typography.label)
-                    .foregroundStyle(.secondary)
-            }
         }
         .padding(.horizontal, DockwrightTheme.Spacing.xl)
-        .padding(.vertical, DockwrightTheme.Spacing.xs)
+        .padding(.vertical, DockwrightTheme.Spacing.sm)
     }
 
-    // MARK: - Assistant Bubble
+    // MARK: - Assistant Bubble (left-aligned, no background)
 
     private var assistantBubble: some View {
-        HStack(alignment: .top, spacing: DockwrightTheme.Spacing.lg) {
-            // Avatar
-            ZStack {
-                Circle()
-                    .fill(DockwrightTheme.assistantAvatarGradient)
-                    .frame(width: DockwrightTheme.Layout.avatarSize, height: DockwrightTheme.Layout.avatarSize)
-                Image(systemName: "sparkles")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.white)
+        VStack(alignment: .leading, spacing: DockwrightTheme.Spacing.sm) {
+            // Tool outputs
+            if !message.toolOutputs.isEmpty {
+                ForEach(message.toolOutputs) { output in
+                    ToolCardView(output: output)
+                }
             }
 
-            VStack(alignment: .leading, spacing: DockwrightTheme.Spacing.sm) {
-                // Tool outputs
-                if !message.toolOutputs.isEmpty {
-                    ForEach(message.toolOutputs) { output in
-                        ToolCardView(output: output)
-                    }
-                }
-
-                // Content
-                if !message.content.isEmpty {
-                    Text(LocalizedStringKey(message.content))
-                        .font(DockwrightTheme.Typography.body)
-                        .foregroundStyle(.white.opacity(0.9))
+            // Thinking content (shown when "Show agent thinking" is on)
+            if !message.thinkingContent.isEmpty,
+               UserDefaults.standard.object(forKey: "showAgentThinking") as? Bool ?? true {
+                DisclosureGroup {
+                    Text(message.thinkingContent)
+                        .font(.system(size: AppPreferences.shared.chatFontSize - 1))
+                        .foregroundStyle(.secondary)
                         .textSelection(.enabled)
-                        .frame(maxWidth: DockwrightTheme.Layout.maxBubbleWidth, alignment: .leading)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                } label: {
+                    Label("Thinking", systemImage: "brain")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.tertiary)
                 }
-
-                // Streaming cursor
-                if message.isStreaming && message.content.isEmpty && message.toolOutputs.isEmpty {
-                    ThinkingDotsView()
-                }
-
-                if message.isStreaming && !message.content.isEmpty {
-                    StreamingCursorView()
-                }
-
-                // Action bar (copy, etc.) on hover
-                if !message.isStreaming && isHovered && !message.content.isEmpty {
-                    HStack(spacing: DockwrightTheme.Spacing.lg) {
-                        Button {
-                            copyToClipboard(message.content)
-                        } label: {
-                            HStack(spacing: 3) {
-                                Image(systemName: "doc.on.doc")
-                                Text("Copy")
-                            }
-                            .font(DockwrightTheme.Typography.microMedium)
-                            .foregroundStyle(.tertiary)
-                        }
-                        .buttonStyle(.plain)
-
-                        Text(relativeTime)
-                            .font(DockwrightTheme.Typography.microMono)
-                            .foregroundStyle(.quaternary)
-                    }
-                    .transition(.opacity)
-                }
+                .tint(.secondary)
             }
 
-            Spacer(minLength: 60)
+            // Content — plain text, no bubble
+            if !message.content.isEmpty {
+                Text(LocalizedStringKey(message.content))
+                    .font(chatFont)
+                    .foregroundStyle(.primary.opacity(0.92))
+                    .textSelection(.enabled)
+                    .frame(maxWidth: DockwrightTheme.Layout.maxBubbleWidth, alignment: .leading)
+            }
+
+            // Streaming cursor
+            if message.isStreaming && message.content.isEmpty && message.toolOutputs.isEmpty {
+                ThinkingDotsView()
+            }
+
+            if message.isStreaming && !message.content.isEmpty {
+                StreamingCursorView()
+            }
+
+            // Action bar on hover
+            if !message.isStreaming && isHovered && !message.content.isEmpty {
+                HStack(spacing: DockwrightTheme.Spacing.md) {
+                    Button { copyToClipboard(message.content) } label: {
+                        Image(systemName: "doc.on.doc")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.tertiary)
+                    }
+                    .buttonStyle(.plain)
+
+                    Text(relativeTime)
+                        .font(DockwrightTheme.Typography.microMono)
+                        .foregroundStyle(.quaternary)
+                }
+                .transition(.opacity)
+            }
         }
         .padding(.horizontal, DockwrightTheme.Spacing.xl)
-        .padding(.vertical, DockwrightTheme.Spacing.xs)
+        .padding(.trailing, 80)
+        .padding(.vertical, DockwrightTheme.Spacing.sm)
     }
 
     // MARK: - Error Bubble
 
     private var errorBubble: some View {
-        HStack(alignment: .top, spacing: DockwrightTheme.Spacing.lg) {
-            ZStack {
-                Circle()
-                    .fill(DockwrightTheme.error.opacity(DockwrightTheme.Opacity.tintStrong))
-                    .frame(width: DockwrightTheme.Layout.avatarSize, height: DockwrightTheme.Layout.avatarSize)
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .font(DockwrightTheme.Typography.label)
-                    .foregroundStyle(DockwrightTheme.error)
-            }
+        HStack(alignment: .top, spacing: DockwrightTheme.Spacing.md) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 14))
+                .foregroundStyle(DockwrightTheme.error)
 
             Text(message.content)
-                .font(DockwrightTheme.Typography.body)
+                .font(chatFont)
                 .foregroundStyle(.secondary)
                 .textSelection(.enabled)
-                .padding(.horizontal, 14)
-                .padding(.vertical, DockwrightTheme.Spacing.lg)
-                .background(DockwrightTheme.error.opacity(DockwrightTheme.Opacity.tintSubtle))
-                .clipShape(RoundedRectangle(cornerRadius: DockwrightTheme.Radius.card))
-                .overlay(
-                    RoundedRectangle(cornerRadius: DockwrightTheme.Radius.card)
-                        .stroke(DockwrightTheme.error.opacity(0.2), lineWidth: 1)
-                )
                 .frame(maxWidth: DockwrightTheme.Layout.maxBubbleWidth, alignment: .leading)
-
-            Spacer(minLength: 60)
         }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(DockwrightTheme.error.opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(DockwrightTheme.error.opacity(0.15), lineWidth: 1)
+        )
         .padding(.horizontal, DockwrightTheme.Spacing.xl)
-        .padding(.vertical, DockwrightTheme.Spacing.xs)
+        .padding(.trailing, 80)
+        .padding(.vertical, DockwrightTheme.Spacing.sm)
     }
 
     // MARK: - System Bubble
@@ -175,7 +161,7 @@ struct MessageBubble: View {
             .foregroundStyle(.tertiary)
             .padding(.horizontal, DockwrightTheme.Spacing.lg)
             .padding(.vertical, DockwrightTheme.Spacing.xs)
-            .background(Color.white.opacity(0.06))
+            .background(Color.primary.opacity(0.04))
             .clipShape(Capsule())
             Spacer()
         }
@@ -213,7 +199,7 @@ struct ThinkingDotsView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .background(Color.white.opacity(0.06))
+        .background(Color.primary.opacity(0.06))
         .clipShape(Capsule())
         .task {
             while !Task.isCancelled {

@@ -14,11 +14,18 @@ final class AppState {
     var streamingText = ""
     var currentActivity: StreamActivity?
 
+    // Central preferences (single source of truth)
+    let prefs = AppPreferences.shared
+
     // Settings
-    var selectedModel = "claude-opus-4-6"
-    var showSidebar = true
+    var selectedModel: String {
+        get { prefs.selectedModel }
+        set { prefs.selectedModel = newValue }
+    }
+    var showSidebar: Bool
     var showSettings = false
     var showSkillsAutomations = false
+    var showGoals = false
 
     // Services (nonisolated Sendable types)
     let llm = LLMService()
@@ -34,6 +41,8 @@ final class AppState {
 
     // Goals
     let goalStore = GoalStore()
+    var goalCount = 0
+    var cronJobCount = 0
 
     // Model registry
     let modelRegistry = ModelRegistry.shared
@@ -49,6 +58,10 @@ final class AppState {
 
     // Parallel agent executor
     let parallelExecutor = ParallelAgentExecutor()
+
+    // Bot services
+    let telegramBot = TelegramBotService.shared
+    let whatsAppBot = WhatsAppBotService.shared
 
     // Skills
     let skillLoader = SkillLoader()
@@ -76,6 +89,11 @@ final class AppState {
 
     // Scheduler UI
     var showScheduler = false
+
+    // Tool approval dialog
+    var showToolApproval = false
+    var toolApprovalDescription = ""
+    var toolApprovalContinuation: CheckedContinuation<Bool, Never>?
 
     // Cancellation
     private var streamTask: Task<Void, Never>?
@@ -145,16 +163,17 @@ final class AppState {
     private var conversationSummary: String = ""
     private var lastSummarizedCount = 0
 
-    // API key convenience — checks AuthManager for OAuth tokens too
+    // Provider-aware auth check: true if ANY provider is configured.
+    // This gates onboarding — once the user has any credential, they're "in".
     var hasAPIKey: Bool {
         _ = authManager.keychainVersion  // trigger re-render on auth changes
-        let provider = LLMModels.provider(for: selectedModel)
-        if provider == .ollama { return true }
-        return !authManager.anthropicApiKey.isEmpty ||
-               !authManager.openaiApiKey.isEmpty ||
-               KeychainHelper.read(key: "anthropic_api_key") != nil ||
-               KeychainHelper.read(key: "openai_api_key") != nil ||
-               KeychainHelper.read(key: provider.keychainKey) != nil
+        return prefs.hasAnyConfiguredProvider(authManager: authManager)
+    }
+
+    /// True only if the currently selected model's provider specifically is configured.
+    var isActiveProviderConfigured: Bool {
+        _ = authManager.keychainVersion
+        return prefs.isCurrentProviderConfigured(authManager: authManager)
     }
 
     /// Get the API key for the currently selected model's provider.
@@ -178,13 +197,55 @@ final class AppState {
     }
 
     init() {
-        // Set up scheduler with multi-channel delivery
-        cronRunner = CronRunner(store: cronStore, channel: NotificationChannel())
+        // Load sidebar state from preferences
+        showSidebar = AppPreferences.shared.sidebarDefaultOpen
+
+        // Set up scheduler — routes through MultiChannel (respects notification prefs)
+        // Wire tool approval dialog — respects autonomy level from Agent Settings
+        toolExecutor.onApprovalNeeded = { [weak self] toolName, description in
+            let autonomy = UserDefaults.standard.string(forKey: "autonomyLevel") ?? "suggest"
+            switch autonomy {
+            case "autonomous":
+                // Execute everything automatically
+                return true
+            case "off":
+                // No autonomous actions at all
+                return false
+            case "proactive":
+                // Safe tools auto-approved, risky ones (shell, file write) need approval
+                let riskyTools: Set<String> = ["shell", "file", "browser_action"]
+                if !riskyTools.contains(toolName) { return true }
+                fallthrough
+            default: // "suggest"
+                // Show approval dialog
+                await MainActor.run {
+                    guard let self else { return }
+                    self.toolApprovalDescription = description
+                    self.showToolApproval = true
+                }
+                return await withCheckedContinuation { continuation in
+                    Task { @MainActor [weak self] in
+                        self?.toolApprovalContinuation = continuation
+                    }
+                }
+            }
+        }
+
+        cronRunner = CronRunner(store: cronStore, channel: multiChannel)
         tools.register(CronTool(store: cronStore))
+
+        // Wire cron job execution to send actions through the LLM
+        cronRunner.onExecuteAction = { [weak self] jobName, actionText in
+            Task { @MainActor in
+                guard let self else { return }
+                await self.sendMessage(actionText)
+            }
+        }
+
         cronRunner.start()
 
-        // Set up heartbeat
-        heartbeat = HeartbeatRunner(channel: NotificationChannel(), cronStore: cronStore)
+        // Set up heartbeat — also through MultiChannel
+        heartbeat = HeartbeatRunner(channel: multiChannel, cronStore: cronStore)
         heartbeat.start()
 
         // Set up memory -- failure is non-fatal, app works without it
@@ -231,7 +292,33 @@ final class AppState {
         authManager.importClaudeCodeTokenIfNeeded()
         AuthManager.startProactiveTokenSync()
 
+        // Sync model to an available provider after auth bootstrap
+        // (e.g., if selectedModel was Anthropic but user only has Gemini key now)
+        prefs.syncModelToAvailableProvider(authManager: authManager)
+
         loadConversations()
+        refreshBadgeCounts()
+
+        // Prune expired conversations on launch (respect retention setting)
+        pruneExpiredConversations()
+
+        // Start AI-to-AI server on port 8766 for programmatic testing
+        startAIToAIServer()
+
+        // Start bot services (Telegram + WhatsApp) if configured
+        telegramBot.onChatMessage = { [weak self] from, userText, response in
+            guard let self else { return }
+            // Show the Telegram exchange in the current conversation
+            let header = "📩 **Telegram** from \(from)"
+            self.currentConversation.messages.append(
+                ChatMessage(role: .user, content: "\(header)\n\(userText)")
+            )
+            self.currentConversation.messages.append(
+                ChatMessage(role: .assistant, content: response)
+            )
+        }
+        telegramBot.start()
+        whatsAppBot.start()
 
         // Refresh model registry in background (fetches from provider APIs)
         if !modelRegistry.isCacheFresh {
@@ -324,8 +411,27 @@ final class AppState {
         - When showing code, use markdown code blocks with language tags
         - When the user says "this file" or "this page", use screen context to determine what they mean
         - If clipboard has code when the user pastes, offer to explain or fix it
-        - Speak Dutch if the user speaks Dutch
         """
+
+        // Language preference: use voice language setting to determine response language
+        let sttLang = VoiceService.effectiveLanguage
+        if sttLang.hasPrefix("nl") {
+            prompt += "\n- IMPORTANT: Always respond in Dutch (Nederlands). All your responses must be in Dutch."
+        } else if sttLang.hasPrefix("de") {
+            prompt += "\n- IMPORTANT: Always respond in German (Deutsch). All your responses must be in German."
+        } else if sttLang.hasPrefix("fr") {
+            prompt += "\n- IMPORTANT: Always respond in French (Français). All your responses must be in French."
+        } else if sttLang.hasPrefix("es") {
+            prompt += "\n- IMPORTANT: Always respond in Spanish (Español). All your responses must be in Spanish."
+        } else if !sttLang.hasPrefix("en") {
+            prompt += "\n- IMPORTANT: Always respond in the language matching locale: \(sttLang)."
+        }
+
+        // Response style from preferences
+        let styleFragment = prefs.responseStylePrompt
+        if !styleFragment.isEmpty {
+            prompt += styleFragment
+        }
 
         // Inject skill descriptions
         let skillsFragment = skillLoader.systemPromptFragment()
@@ -333,15 +439,58 @@ final class AppState {
             prompt += skillsFragment
         }
 
+        // Custom system prompt from advanced settings
+        let custom = prefs.customSystemPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !custom.isEmpty {
+            prompt += "\n\nUser custom instructions:\n\(custom)"
+        }
+
         return prompt
     }
 
     // MARK: - Send Message
 
+    /// Ensures the API key is fresh — if it's an expired OAuth token, refreshes it first.
+    /// For Ollama (no key needed), returns empty string to signal "proceed without auth".
+    /// Cooldown: don't re-attempt refresh if it failed recently.
+    private var _lastRefreshFailure: Date = .distantPast
+    private let _refreshFailureCooldown: TimeInterval = 300  // 5 minutes
+
+    private func ensureFreshAPIKey() async -> String? {
+        // Ollama needs no API key — let it through with an empty string
+        let provider = LLMModels.provider(for: selectedModel)
+        if provider == .ollama { return "" }
+
+        guard let key = currentAPIKey, !key.isEmpty else { return nil }
+
+        // OAuth token refresh: only attempt if we have a valid refresh token AND expiry
+        // If the token works (no 401 from Anthropic), no refresh is needed
+        if LLMService.isOAuthToken(key),
+           let expiresStr = KeychainHelper.read(key: "claude_token_expires"),
+           let expiresEpoch = Int(expiresStr) {
+            let expiresAt = Date(timeIntervalSince1970: Double(expiresEpoch))
+            if Date() >= expiresAt,
+               KeychainHelper.exists(key: "claude_refresh_token"),
+               Date().timeIntervalSince(_lastRefreshFailure) >= _refreshFailureCooldown {
+                if let freshToken = await AuthManager.refreshClaudeOAuthToken() {
+                    KeychainHelper.save(key: "anthropic_api_key", value: freshToken)
+                    KeychainHelper.save(key: "claude_oauth_token", value: freshToken)
+                    AuthManager.invalidateOAuthCache()
+                    return freshToken
+                } else {
+                    _lastRefreshFailure = Date()
+                    // Delete stale expiry so we stop trying on every launch
+                    KeychainHelper.delete(key: "claude_token_expires")
+                }
+            }
+        }
+        return key
+    }
+
     func sendMessage(_ text: String, images: [ImageContent]? = nil) async {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
 
-        guard let apiKey = currentAPIKey else {
+        guard let apiKey = await ensureFreshAPIKey() else {
             let provider = LLMModels.provider(for: selectedModel)
             appendError("No API key configured for \(provider.rawValue). Go to Settings > API Keys.")
             return
@@ -393,8 +542,15 @@ final class AppState {
         await autoSummarizeIfNeeded()
 
         // Tool use loop — keeps calling LLM until no more tool calls
+        let tokenBudget = UserDefaults.standard.object(forKey: "agentTokenBudget") as? Int ?? 50000
         while true {
             if Task.isCancelled { break }
+
+            // Enforce token budget from Agent Settings
+            if tokenCounter.totalTokens > tokenBudget {
+                log.info("[AppState] Token budget exhausted (\(self.tokenCounter.totalTokens)/\(tokenBudget))")
+                break
+            }
 
             do {
                 let toolDefs = tools.anthropicToolDefinitions()
@@ -406,7 +562,9 @@ final class AppState {
                     tools: toolDefs.isEmpty ? nil : toolDefs,
                     model: selectedModel,
                     apiKey: apiKey,
-                    systemPrompt: systemPrompt
+                    systemPrompt: systemPrompt,
+                    temperature: prefs.temperature,
+                    maxTokens: prefs.maxTokens
                 ) { [weak self] chunk in
                     Task { @MainActor [weak self] in
                         self?.handleChunk(chunk, assistantIndex: assistantIndex)
@@ -457,6 +615,9 @@ final class AppState {
                         llmMessages.append(.tool(callId: tc.id, content: result.output))
                     }
 
+                    // Refresh sidebar badges (goals/jobs may have changed via tools)
+                    refreshBadgeCounts()
+
                     // Reset streaming text for next LLM response
                     streamingText = ""
                     currentConversation.messages[assistantIndex].content = ""
@@ -475,7 +636,7 @@ final class AppState {
                 retryCount += 1
                 if retryCount <= maxRetries {
                     let delay = pow(2.0, Double(retryCount - 1))
-                    appendError("Retrying (\(retryCount)/\(maxRetries)) after \(Int(delay))s: \(error.localizedDescription)")
+                    log.info("[LLM] Retrying (\(retryCount)/\(maxRetries)) after \(Int(delay))s: \(error.localizedDescription)")
                     try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
                     continue
                 }
@@ -488,8 +649,11 @@ final class AppState {
             }
         }
 
-        // Finalize
+        // Finalize — flush buffered text if streaming was off
         if assistantIndex < currentConversation.messages.count {
+            if !prefs.streamResponses && !streamingText.isEmpty {
+                currentConversation.messages[assistantIndex].content = streamingText
+            }
             currentConversation.messages[assistantIndex].isStreaming = false
         }
         isProcessing = false
@@ -504,20 +668,29 @@ final class AppState {
             }
         }
 
-        // Save conversation
+        // Save conversation (respect privacy setting)
         currentConversation.touch()
         ExportDataBridge.shared.currentConversation = currentConversation
-        conversationStore.save(currentConversation)
-        loadConversations()
+        if prefs.saveConversations {
+            conversationStore.save(currentConversation)
+            loadConversations()
+        }
     }
 
     private func handleChunk(_ chunk: StreamChunk, assistantIndex: Int) {
         guard assistantIndex < currentConversation.messages.count else { return }
 
+        let isStreaming = prefs.streamResponses
+
         switch chunk {
         case .textDelta(let text):
             streamingText += text
-            currentConversation.messages[assistantIndex].content = streamingText
+            if isStreaming {
+                // Live update — push every delta to UI
+                currentConversation.messages[assistantIndex].content = streamingText
+            }
+            // When !isStreaming the text accumulates in streamingText silently;
+            // the final flush happens when the loop finishes (see runLLMLoop).
             currentActivity = .generating
 
         case .thinking(let text):
@@ -531,6 +704,10 @@ final class AppState {
             currentActivity = .executing(name)
 
         case .done:
+            // Flush buffered text when streaming is off
+            if !isStreaming {
+                currentConversation.messages[assistantIndex].content = streamingText
+            }
             currentActivity = nil
 
         case .toolCompleted, .toolFailed:
@@ -709,8 +886,8 @@ final class AppState {
     // MARK: - Conversation Management
 
     func newConversation() {
-        // Save current if it has messages
-        if !currentConversation.messages.isEmpty {
+        // Save current if it has messages and saving is enabled
+        if !currentConversation.messages.isEmpty && prefs.saveConversations {
             conversationStore.save(currentConversation)
         }
         currentConversation = Conversation()
@@ -721,8 +898,8 @@ final class AppState {
     }
 
     func loadConversation(_ id: String) {
-        // Save current
-        if !currentConversation.messages.isEmpty {
+        // Save current — only if privacy toggle allows it
+        if !currentConversation.messages.isEmpty && prefs.saveConversations {
             conversationStore.save(currentConversation)
         }
 
@@ -747,6 +924,37 @@ final class AppState {
         conversations = conversationStore.listAll()
     }
 
+    /// Refresh sidebar badge counts for goals and cron jobs.
+    func refreshBadgeCounts() {
+        goalCount = goalStore.listGoals(activeOnly: true).count
+        cronJobCount = cronStore.listAll().count
+    }
+
+    /// Clear all conversation data — store, in-memory, sidebar. Called from privacy settings.
+    func clearAllConversations() {
+        for summary in conversationStore.listAll() {
+            conversationStore.delete(id: summary.id)
+        }
+        currentConversation = Conversation()
+        conversations = []
+        streamingText = ""
+        conversationSummary = ""
+        lastSummarizedCount = 0
+    }
+
+    /// Prune conversations older than the retention period.
+    func pruneExpiredConversations() {
+        let days = prefs.conversationRetentionDays
+        guard days > 0 else { return } // 0 = never delete
+        let cutoff = Date().addingTimeInterval(-Double(days) * 86400)
+        for summary in conversationStore.listAll() {
+            if summary.updatedAt < cutoff {
+                conversationStore.delete(id: summary.id)
+            }
+        }
+        loadConversations()
+    }
+
     // MARK: - Voice
 
     func toggleVoiceMode() async {
@@ -758,6 +966,12 @@ final class AppState {
     }
 
     func startVoice() async {
+        // Respect user's "Enable Voice Mode" preference toggle (defaults to true)
+        guard UserDefaults.standard.object(forKey: "voiceEnabled") as? Bool ?? true else {
+            appendError("Voice mode is disabled. Enable it in Settings → Voice.")
+            return
+        }
+
         let authorized = await voiceService.ensureAuthorization()
         guard authorized else {
             appendError(voiceService.errorMessage ?? "Voice not authorized.")
@@ -834,6 +1048,7 @@ final class AppState {
         voiceService.onTranscription = nil
         voiceService.onFinalTranscription = nil
         voiceService.stopListening()
+        ttsService.onSpeakingComplete = nil
         ttsService.stopSpeaking()
         voiceCoordinator.release(.mainChat)
     }
@@ -854,6 +1069,101 @@ final class AppState {
         }
 
         ttsService.speak(text: text)
+    }
+
+    // MARK: - AI-to-AI Server
+
+    private func startAIToAIServer() {
+        Task { @MainActor in
+            let server = AIToAIServer.shared
+            await server.setOnRequest { [weak self] text, reply in
+                Task { @MainActor [weak self] in
+                    guard let self else {
+                        reply("Error: AppState unavailable")
+                        return
+                    }
+                    let result = await self.executeA2ARequest(text)
+                    reply(result)
+                }
+            }
+            do {
+                try await server.start()
+                log.info("[A2A] Server started on port 8766")
+            } catch {
+                log.error("[A2A] Failed to start: \(error)")
+            }
+        }
+    }
+
+    /// Runs the full LLM + tool loop in isolation — same as the UI chat but without touching UI state.
+    private func executeA2ARequest(_ text: String) async -> String {
+        guard let apiKey = await ensureFreshAPIKey() else {
+            return "Error: No API key configured"
+        }
+
+        log.info("[A2A] Request: \(text.prefix(200))")
+
+        // Start with the user message
+        var llmMessages: [LLMMessage] = [.user(text)]
+        let toolDefs = tools.anthropicToolDefinitions()
+        let maxToolRounds = 10
+        var round = 0
+        var finalText = ""
+
+        while round < maxToolRounds {
+            round += 1
+
+            do {
+                var streamedText = ""
+
+                let response = try await llm.streamChat(
+                    messages: llmMessages,
+                    tools: toolDefs.isEmpty ? nil : toolDefs,
+                    model: selectedModel,
+                    apiKey: apiKey,
+                    systemPrompt: systemPrompt,
+                    temperature: prefs.temperature,
+                    maxTokens: prefs.maxTokens
+                ) { chunk in
+                    if case .textDelta(let delta) = chunk {
+                        streamedText += delta
+                    }
+                }
+
+                tokenCounter.recordUsage(input: response.inputTokens, output: response.outputTokens)
+                finalText = response.content ?? streamedText
+
+                // Handle tool calls — execute and loop back, same as runLLMLoop
+                guard let toolCalls = response.toolCalls, !toolCalls.isEmpty else {
+                    break // No tool calls — done
+                }
+
+                // Add assistant message with tool calls
+                llmMessages.append(.assistant(finalText, toolCalls: toolCalls))
+
+                // Execute each tool
+                var toolResults: [String] = []
+                for tc in toolCalls {
+                    let args = toolExecutor.parseArguments(tc.function.arguments)
+                    log.info("[A2A] Executing tool: \(tc.function.name)")
+
+                    let result = await toolExecutor.executeTool(name: tc.function.name, arguments: args)
+                    llmMessages.append(.tool(callId: tc.id, content: result.output))
+                    toolResults.append("[\(tc.function.name)] \(result.isError ? "ERROR: " : "")\(result.output.prefix(500))")
+                }
+
+                log.info("[A2A] Tool round \(round) completed: \(toolResults.count) tools")
+                finalText = "" // Reset — next LLM response will be the final text
+                continue
+
+            } catch {
+                log.error("[A2A] Error in round \(round): \(error)")
+                return "Error: \(error.localizedDescription)"
+            }
+        }
+
+        log.info("[A2A] Done after \(round) round(s), response length: \(finalText.count)")
+        return finalText.isEmpty ? "No response generated" : finalText
     }
 
     // MARK: - Helpers

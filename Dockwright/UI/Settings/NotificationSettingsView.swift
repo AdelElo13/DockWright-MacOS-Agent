@@ -1,67 +1,61 @@
 import SwiftUI
 
 /// Notification channel preferences and quiet hours.
+/// All toggles read/write through AppPreferences — the runtime routing layer
+/// (MultiChannel) reads these same preferences when deciding where to deliver.
 struct NotificationSettingsView: View {
-    @State private var notifyOnCompletion = UserDefaults.standard.object(forKey: "notifyOnCompletion") as? Bool ?? true
-    @State private var notifyOnError = UserDefaults.standard.object(forKey: "notifyOnError") as? Bool ?? true
-    @State private var notifyOnScheduledTask = UserDefaults.standard.object(forKey: "notifyOnScheduledTask") as? Bool ?? true
-    @State private var notifySound = UserDefaults.standard.object(forKey: "notifySound") as? Bool ?? true
+    private var prefs: AppPreferences { AppPreferences.shared }
 
-    // Quiet hours
-    @State private var quietHoursEnabled = UserDefaults.standard.bool(forKey: "quietHoursEnabled")
-    @State private var quietHoursStart = UserDefaults.standard.object(forKey: "quietHoursStart") as? Int ?? 22
-    @State private var quietHoursEnd = UserDefaults.standard.object(forKey: "quietHoursEnd") as? Int ?? 8
-
-    // Channel preferences
-    @State private var useSystemNotifications = UserDefaults.standard.object(forKey: "useSystemNotifications") as? Bool ?? true
-    @State private var useTelegram = UserDefaults.standard.object(forKey: "useTelegramNotifications") as? Bool ?? true
-    @State private var useDiscord = UserDefaults.standard.object(forKey: "useDiscordNotifications") as? Bool ?? true
-
-    // Channel status
     @State private var hasTelegram = false
     @State private var hasDiscord = false
 
     var body: some View {
         Form {
             Section("Notify Me When") {
-                Toggle("Task completes", isOn: $notifyOnCompletion)
-                    .onChange(of: notifyOnCompletion) { _, v in
-                        UserDefaults.standard.set(v, forKey: "notifyOnCompletion")
-                    }
+                Toggle("Task completes", isOn: Binding(
+                    get: { prefs.notifyOnCompletion },
+                    set: { prefs.notifyOnCompletion = $0 }
+                ))
 
-                Toggle("Error occurs", isOn: $notifyOnError)
-                    .onChange(of: notifyOnError) { _, v in
-                        UserDefaults.standard.set(v, forKey: "notifyOnError")
-                    }
+                Toggle("Error occurs", isOn: Binding(
+                    get: { prefs.notifyOnError },
+                    set: { prefs.notifyOnError = $0 }
+                ))
 
-                Toggle("Scheduled task runs", isOn: $notifyOnScheduledTask)
-                    .onChange(of: notifyOnScheduledTask) { _, v in
-                        UserDefaults.standard.set(v, forKey: "notifyOnScheduledTask")
-                    }
+                Toggle("Scheduled task runs", isOn: Binding(
+                    get: { prefs.notifyOnScheduledTask },
+                    set: { prefs.notifyOnScheduledTask = $0 }
+                ))
 
-                Toggle("Play notification sound", isOn: $notifySound)
-                    .onChange(of: notifySound) { _, v in
-                        UserDefaults.standard.set(v, forKey: "notifySound")
-                    }
+                Toggle("Play notification sound", isOn: Binding(
+                    get: { prefs.notifySound },
+                    set: { prefs.notifySound = $0 }
+                ))
             }
 
             Section("Delivery Channels") {
                 channelToggle("macOS Notification Center",
                               icon: "bell.badge.fill",
-                              isOn: $useSystemNotifications,
-                              key: "useSystemNotifications",
+                              isOn: Binding(
+                                get: { prefs.useSystemNotifications },
+                                set: { prefs.useSystemNotifications = $0 }
+                              ),
                               configured: true)
 
                 channelToggle("Telegram",
                               icon: "paperplane.fill",
-                              isOn: $useTelegram,
-                              key: "useTelegramNotifications",
+                              isOn: Binding(
+                                get: { prefs.useTelegramNotifications },
+                                set: { prefs.useTelegramNotifications = $0 }
+                              ),
                               configured: hasTelegram)
 
                 channelToggle("Discord",
                               icon: "bubble.left.and.bubble.right.fill",
-                              isOn: $useDiscord,
-                              key: "useDiscordNotifications",
+                              isOn: Binding(
+                                get: { prefs.useDiscordNotifications },
+                                set: { prefs.useDiscordNotifications = $0 }
+                              ),
                               configured: hasDiscord)
 
                 if !hasTelegram && !hasDiscord {
@@ -72,33 +66,33 @@ struct NotificationSettingsView: View {
             }
 
             Section("Quiet Hours") {
-                Toggle("Enable quiet hours", isOn: $quietHoursEnabled)
-                    .onChange(of: quietHoursEnabled) { _, v in
-                        UserDefaults.standard.set(v, forKey: "quietHoursEnabled")
-                    }
+                Toggle("Enable quiet hours", isOn: Binding(
+                    get: { prefs.quietHoursEnabled },
+                    set: { prefs.quietHoursEnabled = $0 }
+                ))
 
-                if quietHoursEnabled {
+                if prefs.quietHoursEnabled {
                     HStack {
-                        Picker("From", selection: $quietHoursStart) {
+                        Picker("From", selection: Binding(
+                            get: { prefs.quietHoursStart },
+                            set: { prefs.quietHoursStart = $0 }
+                        )) {
                             ForEach(0..<24, id: \.self) { h in
                                 Text(String(format: "%02d:00", h)).tag(h)
                             }
                         }
-                        .onChange(of: quietHoursStart) { _, v in
-                            UserDefaults.standard.set(v, forKey: "quietHoursStart")
-                        }
 
                         Text("to")
 
-                        Picker("", selection: $quietHoursEnd) {
+                        Picker("", selection: Binding(
+                            get: { prefs.quietHoursEnd },
+                            set: { prefs.quietHoursEnd = $0 }
+                        )) {
                             ForEach(0..<24, id: \.self) { h in
                                 Text(String(format: "%02d:00", h)).tag(h)
                             }
                         }
                         .labelsHidden()
-                        .onChange(of: quietHoursEnd) { _, v in
-                            UserDefaults.standard.set(v, forKey: "quietHoursEnd")
-                        }
                     }
 
                     Text("Notifications will be silenced during quiet hours. Critical errors will still alert.")
@@ -111,7 +105,7 @@ struct NotificationSettingsView: View {
         .onAppear { checkChannelStatus() }
     }
 
-    private func channelToggle(_ label: String, icon: String, isOn: Binding<Bool>, key: String, configured: Bool) -> some View {
+    private func channelToggle(_ label: String, icon: String, isOn: Binding<Bool>, configured: Bool) -> some View {
         HStack {
             Image(systemName: icon)
                 .font(.system(size: 14))
@@ -119,9 +113,6 @@ struct NotificationSettingsView: View {
                 .frame(width: 24)
 
             Toggle(label, isOn: isOn)
-                .onChange(of: isOn.wrappedValue) { _, v in
-                    UserDefaults.standard.set(v, forKey: key)
-                }
                 .disabled(!configured)
 
             if !configured {

@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.Aatje.Dockwright</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>dockwright</string>
+			</array>
+		</dict>
+	</array>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Dockwright needs microphone access for voice input and dictation.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Dockwright uses speech recognition for voice-to-text transcription.</string>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>Dockwright needs calendar access to read and create events.</string>
+	<key>NSCalendarsUsageDescription</key>
+	<string>Dockwright needs calendar access to read and create events.</string>
+	<key>NSRemindersFullAccessUsageDescription</key>
+	<string>Dockwright needs reminders access to read and create reminders.</string>
+	<key>NSRemindersUsageDescription</key>
+	<string>Dockwright needs reminders access to read and create reminders.</string>
+	<key>NSContactsUsageDescription</key>
+	<string>Dockwright needs contacts access to search and display contact information.</string>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>Dockwright uses AppleScript to read browser tabs and control apps.</string>
+	<key>NSScreenCaptureUsageDescription</key>
+	<string>Dockwright needs screen recording access for screenshots and screen OCR.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Dockwright needs camera access to take photos for analysis.</string>
+</dict>
+</plist>

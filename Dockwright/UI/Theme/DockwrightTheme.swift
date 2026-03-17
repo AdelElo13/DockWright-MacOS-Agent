@@ -21,7 +21,7 @@ enum DockwrightTheme {
     // MARK: - Gradients
 
     static let brandGradient = LinearGradient(
-        colors: [Color(hex: 0x2A2A2A), Color(hex: 0x1E1E1E)],
+        colors: [Color(nsColor: .dynamic(light: 0xF0F0F0, dark: 0x2A2A2A)), Color(nsColor: .dynamic(light: 0xE8E8E8, dark: 0x1E1E1E))],
         startPoint: .topLeading,
         endPoint: .bottomTrailing
     )
@@ -40,7 +40,7 @@ enum DockwrightTheme {
     // MARK: - Chat Bubble
 
     static let userBubbleGradient = LinearGradient(
-        colors: [Color(hex: 0x303030), Color(hex: 0x2A2A2A)],
+        colors: [Color(nsColor: .dynamic(light: 0xE8E8E8, dark: 0x303030)), Color(nsColor: .dynamic(light: 0xE0E0E0, dark: 0x2A2A2A))],
         startPoint: .topLeading,
         endPoint: .bottomTrailing
     )
@@ -53,8 +53,8 @@ enum DockwrightTheme {
 
     // MARK: - Surface Colors
 
-    static let glassBackground = Color(hex: 0x212121)
-    static let inputBackground = Color(hex: 0x1E1E1E)
+    static let glassBackground = Color(nsColor: .dynamic(light: 0xFFFFFF, dark: 0x212121))
+    static let inputBackground = Color(nsColor: .dynamic(light: 0xF8F8F8, dark: 0x1E1E1E))
 
     static let sendButtonActive = LinearGradient(
         colors: [Color.white, Color(hex: 0xE5E5E5)],
@@ -114,12 +114,12 @@ enum DockwrightTheme {
     }
 
     enum Surface {
-        static let canvas = Color(hex: 0x171717)
-        static let card = Color(hex: 0x212121)
-        static let elevated = Color(hex: 0x262626)
-        static let sidebar = Color(hex: 0x1C1C1C)
-        static let hover = Color.white.opacity(0.06)
-        static let active = Color.white.opacity(0.10)
+        static let canvas = Color(nsColor: .dynamic(light: 0xF5F5F5, dark: 0x171717))
+        static let card = Color(nsColor: .dynamic(light: 0xFFFFFF, dark: 0x212121))
+        static let elevated = Color(nsColor: .dynamic(light: 0xFFFFFF, dark: 0x262626))
+        static let sidebar = Color(nsColor: .dynamic(light: 0xF0F0F0, dark: 0x1C1C1C))
+        static let hover = Color(nsColor: .dynamic(lightAlpha: (0x000000, 0.04), darkAlpha: (0xFFFFFF, 0.06)))
+        static let active = Color(nsColor: .dynamic(lightAlpha: (0x000000, 0.08), darkAlpha: (0xFFFFFF, 0.10)))
     }
 
     enum Opacity {
@@ -156,6 +156,38 @@ extension Color {
     }
 }
 
+// MARK: - Adaptive NSColor (Light/Dark)
+
+extension NSColor {
+    /// Create an adaptive color from light and dark hex values.
+    static func dynamic(light: UInt, dark: UInt) -> NSColor {
+        NSColor(name: nil) { appearance in
+            let hex = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? dark : light
+            return NSColor(
+                red: CGFloat((hex >> 16) & 0xFF) / 255.0,
+                green: CGFloat((hex >> 8) & 0xFF) / 255.0,
+                blue: CGFloat(hex & 0xFF) / 255.0,
+                alpha: 1.0
+            )
+        }
+    }
+
+    /// Create an adaptive color from light and dark hex+alpha pairs.
+    static func dynamic(lightAlpha: (UInt, Double), darkAlpha: (UInt, Double)) -> NSColor {
+        NSColor(name: nil) { appearance in
+            let isDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            let hex = isDark ? darkAlpha.0 : lightAlpha.0
+            let alpha = isDark ? darkAlpha.1 : lightAlpha.1
+            return NSColor(
+                red: CGFloat((hex >> 16) & 0xFF) / 255.0,
+                green: CGFloat((hex >> 8) & 0xFF) / 255.0,
+                blue: CGFloat(hex & 0xFF) / 255.0,
+                alpha: CGFloat(alpha)
+            )
+        }
+    }
+}
+
 // MARK: - Glass Card Modifier
 
 struct GlassCardModifier: ViewModifier {
@@ -169,7 +201,7 @@ struct GlassCardModifier: ViewModifier {
             )
             .overlay(
                 RoundedRectangle(cornerRadius: cornerRadius)
-                    .stroke(Color.white.opacity(DockwrightTheme.Opacity.borderSubtle), lineWidth: 0.5)
+                    .stroke(Color.primary.opacity(DockwrightTheme.Opacity.borderSubtle), lineWidth: 0.5)
             )
             .shadow(color: .black.opacity(DockwrightTheme.Opacity.shadow), radius: 16, y: 6)
     }

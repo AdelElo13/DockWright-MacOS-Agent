@@ -7,9 +7,10 @@ import os
 struct AutoSkillCreatorTool: Tool, @unchecked Sendable {
     nonisolated let name = "skills"
     nonisolated let description = """
-        Create, list, update, and delete reusable AI skills. Skills are saved as markdown files and loaded into the system prompt. Actions:
+        Create, list, read, update, and delete reusable AI skills. Skills are saved as markdown files and loaded into the system prompt. Actions:
         - create_skill: Create a new skill. Params: name, description, instructions, parameters (optional, comma-separated "param: desc" pairs).
         - list_skills: List all available skills. No params required.
+        - read_skill: Read the full content of a skill. Params: name.
         - update_skill: Update an existing skill. Params: name, plus any of: description, instructions, parameters.
         - delete_skill: Delete a skill by name. Params: name.
         """
@@ -18,7 +19,7 @@ struct AutoSkillCreatorTool: Tool, @unchecked Sendable {
         "action": [
             "type": "string",
             "description": "The action to perform: create_skill, list_skills, update_skill, or delete_skill",
-            "enum": ["create_skill", "list_skills", "update_skill", "delete_skill"]
+            "enum": ["create_skill", "list_skills", "read_skill", "update_skill", "delete_skill"]
         ] as [String: Any],
         "name": [
             "type": "string",
@@ -62,12 +63,14 @@ struct AutoSkillCreatorTool: Tool, @unchecked Sendable {
             return createSkill(arguments)
         case "list_skills":
             return listSkills()
+        case "read_skill":
+            return readSkill(arguments)
         case "update_skill":
             return updateSkill(arguments)
         case "delete_skill":
             return deleteSkill(arguments)
         default:
-            return ToolResult("Unknown action '\(action)'. Use create_skill, list_skills, update_skill, or delete_skill.", isError: true)
+            return ToolResult("Unknown action '\(action)'. Use create_skill, list_skills, read_skill, update_skill, or delete_skill.", isError: true)
         }
     }
 
@@ -131,10 +134,26 @@ struct AutoSkillCreatorTool: Tool, @unchecked Sendable {
             let skillDesc = parsed.description ?? "No description"
 
             output += "- \(skillName): \(skillDesc)\n"
-            output += "  File: \(file.lastPathComponent)\n"
+            output += "  File: \(file.path)\n"
         }
 
         return ToolResult(output)
+    }
+
+    private func readSkill(_ args: [String: Any]) -> ToolResult {
+        guard let name = args["name"] as? String, !name.isEmpty else {
+            return ToolResult("Error: 'name' is required for read_skill.", isError: true)
+        }
+
+        guard let fileURL = findSkillFile(named: name) else {
+            return ToolResult("Error: skill '\(name)' not found. Use 'list_skills' to see available skills.", isError: true)
+        }
+
+        guard let content = try? String(contentsOf: fileURL, encoding: .utf8) else {
+            return ToolResult("Error: could not read skill file.", isError: true)
+        }
+
+        return ToolResult("Skill '\(name)' (file: \(fileURL.path)):\n\n\(content)")
     }
 
     private func updateSkill(_ args: [String: Any]) -> ToolResult {

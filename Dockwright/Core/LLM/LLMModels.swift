@@ -410,9 +410,11 @@ final class ModelRegistry: @unchecked Sendable {
 
         await withTaskGroup(of: (LLMProvider, [LLMModelInfo]).self) { group in
             for provider in LLMProvider.allCases {
-                // Skip providers without API keys (except Ollama)
+                // Skip providers without API keys (except Ollama/Anthropic)
                 if provider != .ollama && provider != .anthropic {
-                    guard let key = KeychainHelper.read(key: provider.keychainKey), !key.isEmpty else {
+                    let hasManualKey = !(KeychainHelper.read(key: provider.keychainKey) ?? "").isEmpty
+                    let hasOAuth = provider == .openai && !(KeychainHelper.read(key: "openai_oauth_token") ?? "").isEmpty
+                    guard hasManualKey || hasOAuth else {
                         continue
                     }
                 }
@@ -520,7 +522,12 @@ final class ModelRegistry: @unchecked Sendable {
         guard let endpoint = provider.modelsListEndpoint,
               let url = URL(string: endpoint) else { return [] }
 
-        guard let apiKey = KeychainHelper.read(key: provider.keychainKey), !apiKey.isEmpty else {
+        // Try the manual API key first; for OpenAI, fall back to OAuth token
+        var apiKey = KeychainHelper.read(key: provider.keychainKey) ?? ""
+        if apiKey.isEmpty && provider == .openai {
+            apiKey = KeychainHelper.read(key: "openai_oauth_token") ?? ""
+        }
+        guard !apiKey.isEmpty else {
             return []
         }
 

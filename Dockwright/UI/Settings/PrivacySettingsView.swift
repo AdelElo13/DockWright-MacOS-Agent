@@ -4,21 +4,31 @@ import SwiftUI
 /// Auto-requests undetermined permissions on appear and monitors for changes in real-time.
 struct PrivacySettingsView: View {
     private var pm = PermissionsManager.shared
+    private var prefs: AppPreferences { AppPreferences.shared }
+
     @State private var requireApproval = UserDefaults.standard.object(forKey: "requireApprovalForRisky") as? Bool ?? true
-    @State private var saveConversations = UserDefaults.standard.object(forKey: "saveConversations") as? Bool ?? true
-    @State private var retentionDays = UserDefaults.standard.object(forKey: "conversationRetentionDays") as? Int ?? 90
-    @State private var sendAnalytics = UserDefaults.standard.bool(forKey: "sendAnalytics")
     @State private var showClearConfirm = false
     @State private var showResetConfirm = false
+
+    /// Optional reference to AppState for clearing conversations end-to-end.
+    /// Injected from parent; if nil, falls back to store-only clear.
+    var appState: AppState?
+
+    init(appState: AppState? = nil) {
+        self.appState = appState
+    }
 
     private let retentionOptions = [7, 14, 30, 60, 90, 180, 365]
 
     private let permissionRows: [(type: PermissionType, name: String, icon: String, description: String)] = [
         (.microphone, "Microphone", "mic.fill", "Voice input & dictation"),
+        (.camera, "Camera", "camera.fill", "Take photos for AI analysis"),
         (.speechRecognition, "Speech Recognition", "waveform", "Voice-to-text transcription"),
         (.calendar, "Calendar", "calendar", "Read & create events"),
         (.reminders, "Reminders", "checklist", "Read & create reminders"),
+        (.contacts, "Contacts", "person.crop.circle", "Search & display contacts"),
         (.accessibility, "Accessibility", "hand.point.up.left.fill", "UI automation & browser reading"),
+        (.screenRecording, "Screen Recording", "rectangle.dashed.badge.record", "Screenshot & screen OCR"),
         (.notifications, "Notifications", "bell.fill", "Background alerts"),
         (.fullDiskAccess, "Full Disk Access", "externaldrive.fill", "File system access"),
     ]
@@ -33,35 +43,31 @@ struct PrivacySettingsView: View {
 
             Section("Execution Safety") {
                 Toggle("Require approval for risky operations", isOn: $requireApproval)
-                    .onChange(of: requireApproval) { _, v in
-                        UserDefaults.standard.set(v, forKey: "requireApprovalForRisky")
+                    .onChange(of: requireApproval) { _, newVal in
+                        UserDefaults.standard.set(newVal, forKey: "requireApprovalForRisky")
                     }
 
-                Text("When enabled, Dockwright will ask before running shell commands, modifying files, or sending messages.")
+                Text("Asks for confirmation before running shell commands or browser actions.")
                     .font(.caption)
                     .foregroundStyle(.tertiary)
             }
 
             Section("Data & Privacy") {
-                Toggle("Save conversation history", isOn: $saveConversations)
-                    .onChange(of: saveConversations) { _, v in
-                        UserDefaults.standard.set(v, forKey: "saveConversations")
-                    }
+                Toggle("Save conversation history", isOn: Binding(
+                    get: { prefs.saveConversations },
+                    set: { prefs.saveConversations = $0 }
+                ))
 
-                Picker("Auto-delete conversations after", selection: $retentionDays) {
+                Picker("Auto-delete conversations after", selection: Binding(
+                    get: { prefs.conversationRetentionDays },
+                    set: { prefs.conversationRetentionDays = $0 }
+                )) {
                     ForEach(retentionOptions, id: \.self) { days in
                         Text("\(days) days").tag(days)
                     }
                     Text("Never").tag(0)
                 }
-                .onChange(of: retentionDays) { _, v in
-                    UserDefaults.standard.set(v, forKey: "conversationRetentionDays")
-                }
 
-                Toggle("Send anonymous usage analytics", isOn: $sendAnalytics)
-                    .onChange(of: sendAnalytics) { _, v in
-                        UserDefaults.standard.set(v, forKey: "sendAnalytics")
-                    }
             }
 
             Section("Danger Zone") {
@@ -95,7 +101,6 @@ struct PrivacySettingsView: View {
         .formStyle(.grouped)
         .onAppear {
             pm.startMonitoring()
-            // Auto-request all undetermined permissions — triggers native dialogs
             pm.requestAllUndetermined()
         }
         .onDisappear {
@@ -150,25 +155,29 @@ struct PrivacySettingsView: View {
     }
 
     private func clearAllConversations() {
-        let store = ConversationStore()
-        for summary in store.listAll() {
-            store.delete(id: summary.id)
+        if let appState {
+            // Full end-to-end clear: store + in-memory + sidebar
+            appState.clearAllConversations()
+        } else {
+            // Fallback: store-only clear
+            let store = ConversationStore()
+            for summary in store.listAll() {
+                store.delete(id: summary.id)
+            }
         }
     }
 
     private func resetAllSettings() {
-        let keysToReset = [
-            "alwaysOnTop", "showMenuBarExtra", "appearance", "chatFontSize",
-            "sidebarDefaultOpen", "sendWithReturn", "streamResponses", "showTokenCost",
-            "confirmDeletions", "requireApprovalForRisky", "saveConversations",
-            "conversationRetentionDays", "sendAnalytics", "temperature",
-            "maxTokens", "customSystemPrompt", "debugLogging",
-            "quietHoursEnabled", "quietHoursStart", "quietHoursEnd",
-            "notifyOnCompletion", "notifyOnError", "autonomyLevel",
-            "heartbeatInterval", "agentTokenBudget"
-        ]
-        for key in keysToReset {
-            UserDefaults.standard.removeObject(forKey: key)
+        // Reset the live singleton (which also persists to UserDefaults via didSet)
+        AppPreferences.shared.resetToDefaults()
+
+        // After reset, the selected model may point to a provider that has no key.
+        // Sync to an available provider so the user doesn't land on a broken model.
+        if let authManager = appState?.authManager {
+            AppPreferences.shared.syncModelToAvailableProvider(authManager: authManager)
         }
+
+        // Reset local @State vars that mirror UserDefaults directly
+        requireApproval = true
     }
 }

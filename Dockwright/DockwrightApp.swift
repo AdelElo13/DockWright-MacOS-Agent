@@ -6,6 +6,9 @@ import os
 struct DockwrightApp: App {
     @State private var appState = AppState()
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+    @AppStorage("appearance") private var appearanceSetting: String = "system"
+
+    private var prefs: AppPreferences { AppPreferences.shared }
 
     var body: some Scene {
         WindowGroup {
@@ -13,28 +16,61 @@ struct DockwrightApp: App {
                 if appState.hasAPIKey {
                     mainView
                 } else {
-                    WelcomeView {
+                    WelcomeView(authManager: appState.authManager) {
                         appState.loadConversations()
                     }
                 }
             }
             .frame(minWidth: 700, minHeight: 500)
-            .preferredColorScheme(.dark)
+            .preferredColorScheme(resolvedColorScheme)
+            .onAppear {
+                applyAlwaysOnTop()
+            }
+            .onChange(of: prefs.alwaysOnTop) { _, _ in
+                applyAlwaysOnTop()
+            }
         }
         .windowStyle(.titleBar)
         .defaultSize(width: 1000, height: 700)
 
         Settings {
-            SettingsView()
+            SettingsView(appState: appState)
         }
 
-        // Menu bar icon
-        MenuBarExtra("Dockwright", systemImage: "brain.head.profile") {
+        // Menu bar icon — respect showMenuBarExtra preference
+        MenuBarExtra("Dockwright", systemImage: "brain.head.profile", isInserted: menuBarInserted) {
             menuBarContent
         }
     }
 
+    // MARK: - Appearance
+
+    private var resolvedColorScheme: ColorScheme? {
+        switch appearanceSetting {
+        case "dark": return .dark
+        case "light": return .light
+        default: return nil // system
+        }
+    }
+
+    // MARK: - Always On Top
+
+    private func applyAlwaysOnTop() {
+        DispatchQueue.main.async {
+            for window in NSApp.windows where window.canBecomeMain {
+                window.level = prefs.alwaysOnTop ? .floating : .normal
+            }
+        }
+    }
+
     // MARK: - Menu Bar
+
+    private var menuBarInserted: Binding<Bool> {
+        Binding(
+            get: { prefs.showMenuBarExtra },
+            set: { prefs.showMenuBarExtra = $0 }
+        )
+    }
 
     private var menuBarContent: some View {
         VStack {
@@ -75,12 +111,14 @@ struct DockwrightApp: App {
             }
             .font(.caption)
 
-            HStack {
-                Text("Cost:")
-                    .foregroundStyle(.secondary)
-                Text(appState.tokenCounter.formattedCost())
+            if prefs.showTokenCost {
+                HStack {
+                    Text("Cost:")
+                        .foregroundStyle(.secondary)
+                    Text(appState.tokenCounter.formattedCost())
+                }
+                .font(.caption)
             }
-            .font(.caption)
 
             Divider()
 
@@ -99,12 +137,13 @@ struct DockwrightApp: App {
             appState.showSettings = false
             appState.showSkillsAutomations = false
             appState.showScheduler = false
+            appState.showGoals = false
         }
     }
 
     /// Whether any overlay panel is visible.
     private var hasOverlay: Bool {
-        appState.showSettings || appState.showSkillsAutomations || appState.showScheduler
+        appState.showSettings || appState.showSkillsAutomations || appState.showScheduler || appState.showGoals
     }
 
     private var mainView: some View {
@@ -133,16 +172,25 @@ struct DockwrightApp: App {
                 }
 
                 ToolbarItem(placement: .primaryAction) {
-                    HStack(spacing: 8) {
+                    HStack(spacing: 6) {
+                        Spacer(minLength: 8)
+
+                        // Provider warning if active model's provider is not configured
+                        if !appState.isActiveProviderConfigured {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundStyle(.orange)
+                                .font(.system(size: 11))
+                                .help("No credential for \(LLMModels.provider(for: appState.selectedModel).rawValue). Go to Settings > API Keys.")
+                        }
+
                         Button {
                             appState.agentMode.toggle()
                         } label: {
-                            HStack(spacing: 4) {
+                            HStack(spacing: 3) {
                                 Image(systemName: "brain")
-                                    .font(.system(size: 12, weight: .medium))
                                 Text("Agent")
-                                    .font(.system(size: 12, weight: .medium))
                             }
+                            .font(.system(size: 12, weight: .medium))
                             .fixedSize()
                             .foregroundStyle(
                                 appState.agentMode ? DockwrightTheme.secondary : .secondary
@@ -150,57 +198,93 @@ struct DockwrightApp: App {
                         }
                         .buttonStyle(.plain)
 
-                        Picker("", selection: $appState.selectedModel) {
+                        Menu {
                             ForEach(LLMModels.allModels, id: \.id) { model in
-                                Text(model.displayName)
-                                    .tag(model.id)
+                                Button {
+                                    appState.selectedModel = model.id
+                                } label: {
+                                    if model.id == appState.selectedModel {
+                                        Label(model.displayName, systemImage: "checkmark")
+                                    } else {
+                                        Text(model.displayName)
+                                    }
+                                }
                             }
+                        } label: {
+                            HStack(spacing: 3) {
+                                Text(LLMModels.allModels.first { $0.id == appState.selectedModel }?.displayName ?? appState.selectedModel)
+                                Image(systemName: "chevron.up.chevron.down")
+                                    .font(.system(size: 9))
+                            }
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(.secondary)
+                            .fixedSize()
                         }
-                        .pickerStyle(.menu)
+                        .menuStyle(.borderlessButton)
                         .fixedSize()
 
-                        Text(appState.tokenCounter.formattedCost())
-                            .font(.system(size: 11, weight: .medium, design: .monospaced))
-                            .foregroundStyle(.tertiary)
-                            .fixedSize()
+                        if prefs.showTokenCost {
+                            Text(appState.tokenCounter.formattedCost())
+                                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                                .foregroundStyle(.tertiary)
+                                .fixedSize()
+                        }
                     }
-                    .padding(.trailing, 4)
+                    .padding(.trailing, 12)
                 }
             }
             .onAppear {
                 appState.loadConversations()
             }
-
-            // Overlay panels — click the dimmed background to dismiss
+        }
+        .overlay {
             if hasOverlay {
                 Color.black.opacity(0.35)
                     .ignoresSafeArea()
                     .onTapGesture { dismissAllOverlays() }
-                    .transition(.opacity)
 
                 if appState.showSettings {
-                    SettingsView(onClose: { dismissAllOverlays() })
-                        .transition(.scale(scale: 0.95).combined(with: .opacity))
+                    SettingsView(appState: appState)
+                        .frame(width: 780, height: 600)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .shadow(color: .black.opacity(0.5), radius: 20)
                 }
 
                 if appState.showSkillsAutomations {
                     SkillsAutomationsView(appState: appState)
-                        .frame(minWidth: 560, minHeight: 520)
+                        .frame(width: 780, height: 600)
                         .clipShape(RoundedRectangle(cornerRadius: 12))
                         .shadow(color: .black.opacity(0.5), radius: 20)
-                        .transition(.scale(scale: 0.95).combined(with: .opacity))
                 }
 
                 if appState.showScheduler {
-                    SchedulerView(store: appState.cronStore, onClose: { dismissAllOverlays() })
-                        .frame(minWidth: 500, minHeight: 400)
+                    SchedulerView(store: appState.cronStore, appState: appState)
+                        .frame(width: 780, height: 500)
                         .clipShape(RoundedRectangle(cornerRadius: 12))
                         .shadow(color: .black.opacity(0.5), radius: 20)
-                        .transition(.scale(scale: 0.95).combined(with: .opacity))
+                }
+
+                if appState.showGoals {
+                    GoalsView(appState: appState)
+                        .frame(width: 780, height: 600)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .shadow(color: .black.opacity(0.5), radius: 20)
                 }
             }
         }
         .animation(.easeInOut(duration: 0.2), value: hasOverlay)
+        .alert("Approve Action?", isPresented: $appState.showToolApproval) {
+            Button("Allow", role: .destructive) {
+                appState.toolApprovalContinuation?.resume(returning: true)
+                appState.toolApprovalContinuation = nil
+            }
+            Button("Deny", role: .cancel) {
+                appState.toolApprovalContinuation?.resume(returning: false)
+                appState.toolApprovalContinuation = nil
+            }
+        } message: {
+            Text(appState.toolApprovalDescription)
+        }
     }
 }
 

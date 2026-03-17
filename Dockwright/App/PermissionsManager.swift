@@ -1,5 +1,6 @@
 import Foundation
 import AVFoundation
+import Contacts
 import EventKit
 import Speech
 import UserNotifications
@@ -10,11 +11,14 @@ import AppKit
 enum PermissionType: String, CaseIterable {
     case accessibility
     case microphone
+    case camera
     case speechRecognition
     case calendar
     case reminders
-    case fullDiskAccess
+    case contacts
+    case screenRecording
     case notifications
+    case fullDiskAccess
 }
 
 enum PermissionState: String {
@@ -78,6 +82,15 @@ final class PermissionsManager {
             @unknown default: return .notDetermined
             }
 
+        case .camera:
+            let status = AVCaptureDevice.authorizationStatus(for: .video)
+            switch status {
+            case .authorized: return .granted
+            case .denied, .restricted: return .denied
+            case .notDetermined: return .notDetermined
+            @unknown default: return .notDetermined
+            }
+
         case .speechRecognition:
             let status = SFSpeechRecognizer.authorizationStatus()
             switch status {
@@ -106,6 +119,25 @@ final class PermissionsManager {
             case .writeOnly: return .granted
             @unknown default: return .notDetermined
             }
+
+        case .contacts:
+            let status = CNContactStore.authorizationStatus(for: .contacts)
+            switch status {
+            case .authorized: return .granted
+            case .denied, .restricted: return .denied
+            case .notDetermined: return .notDetermined
+            @unknown default: return .notDetermined
+            }
+
+        case .screenRecording:
+            // CGPreflightScreenCaptureAccess is the official check (macOS 15+)
+            if CGPreflightScreenCaptureAccess() {
+                return .granted
+            }
+            // Fallback heuristic: try to read window list — if we get names, we have access
+            let windowList = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] ?? []
+            let hasNames = windowList.contains { ($0[kCGWindowOwnerName as String] as? String) != nil && ($0[kCGWindowName as String] as? String) != nil }
+            return hasNames ? .granted : .notDetermined
 
         case .fullDiskAccess:
             let safariDB = FileManager.default.homeDirectoryForCurrentUser
@@ -141,6 +173,15 @@ final class PermissionsManager {
                 }
             }
 
+        case .camera:
+            if current == .denied {
+                openSettings("Privacy_Camera")
+            } else {
+                AVCaptureDevice.requestAccess(for: .video) { _ in
+                    Task { @MainActor in self.refreshAll() }
+                }
+            }
+
         case .speechRecognition:
             if current == .denied {
                 openSettings("Privacy_SpeechRecognition")
@@ -166,6 +207,23 @@ final class PermissionsManager {
                 let store = EKEventStore()
                 _ = try? await store.requestFullAccessToReminders()
                 refreshAll()
+            }
+
+        case .contacts:
+            if current == .denied {
+                openSettings("Privacy_Contacts")
+            } else {
+                let store = CNContactStore()
+                _ = try? await store.requestAccess(for: .contacts)
+                refreshAll()
+            }
+
+        case .screenRecording:
+            // macOS 15+: CGRequestScreenCaptureAccess triggers the system dialog
+            if #available(macOS 15, *) {
+                CGRequestScreenCaptureAccess()
+            } else {
+                openSettings("Privacy_ScreenCapture")
             }
 
         case .fullDiskAccess:

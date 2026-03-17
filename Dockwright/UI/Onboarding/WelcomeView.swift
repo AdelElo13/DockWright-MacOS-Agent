@@ -7,7 +7,8 @@ struct WelcomeView: View {
     @State private var isSaving = false
     @State private var errorMessage = ""
     @State private var claudeCode = ""
-    @State private var authManager = AuthManager()
+    @State private var selectedProvider: LLMProvider = .anthropic
+    var authManager: AuthManager
     var onComplete: () -> Void
 
     var body: some View {
@@ -125,9 +126,21 @@ struct WelcomeView: View {
             }
             .frame(maxWidth: 400)
 
-            // Manual API key entry
+            // Manual API key entry — any provider
             VStack(spacing: DockwrightTheme.Spacing.md) {
-                SecureField("sk-ant-api03-...", text: $apiKey)
+                Picker("Provider", selection: $selectedProvider) {
+                    Text("Anthropic (Claude)").tag(LLMProvider.anthropic)
+                    Text("OpenAI (GPT)").tag(LLMProvider.openai)
+                    Text("Google (Gemini)").tag(LLMProvider.google)
+                    Text("xAI (Grok)").tag(LLMProvider.xai)
+                    Text("Mistral").tag(LLMProvider.mistral)
+                    Text("DeepSeek").tag(LLMProvider.deepseek)
+                    Text("Kimi (Moonshot)").tag(LLMProvider.kimi)
+                }
+                .pickerStyle(.menu)
+                .frame(maxWidth: 400)
+
+                SecureField("Paste API key...", text: $apiKey)
                     .textFieldStyle(.roundedBorder)
                     .frame(maxWidth: 400)
 
@@ -167,10 +180,18 @@ struct WelcomeView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(DockwrightTheme.Surface.canvas)
         .onChange(of: authManager.isOpenAISignedIn) { _, signedIn in
-            if signedIn { onComplete() }
+            if signedIn {
+                // Sync model to OpenAI since the user just signed in with it
+                AppPreferences.shared.syncModelToAvailableProvider(authManager: authManager)
+                onComplete()
+            }
         }
         .onChange(of: authManager.isClaudeSignedIn) { _, signedIn in
-            if signedIn { onComplete() }
+            if signedIn {
+                // Sync model to Claude since the user just signed in with it
+                AppPreferences.shared.syncModelToAvailableProvider(authManager: authManager)
+                onComplete()
+            }
         }
     }
 
@@ -178,15 +199,17 @@ struct WelcomeView: View {
         let trimmed = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
-        guard trimmed.hasPrefix("sk-") else {
-            errorMessage = "API key should start with 'sk-'"
-            return
-        }
-
         isSaving = true
         errorMessage = ""
 
-        KeychainHelper.save(key: "anthropic_api_key", value: trimmed)
+        // Save to the correct keychain key for the chosen provider (bumps keychainVersion)
+        authManager.saveKey(selectedProvider.keychainKey, value: trimmed)
+
+        // Auto-select a model from this provider so it's immediately usable
+        if let firstModel = LLMModels.allModels.first(where: { LLMModels.provider(for: $0.id) == selectedProvider }) {
+            AppPreferences.shared.selectedModel = firstModel.id
+        }
+
         apiKey = ""
         isSaving = false
         onComplete()

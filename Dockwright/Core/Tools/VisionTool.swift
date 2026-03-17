@@ -48,6 +48,9 @@ struct VisionTool: Tool, Sendable {
 
     // MARK: - Image Encoding
 
+    /// Max raw bytes before we downscale — keeps base64 under ~1.3MB (~350K tokens).
+    private static let maxImageBytes = 1_000_000
+
     private func encodeImageFile(at path: String) async -> ToolResult {
         let fm = FileManager.default
         guard fm.fileExists(atPath: path) else {
@@ -68,24 +71,48 @@ struct VisionTool: Tool, Sendable {
             return ToolResult("Unsupported image format. Supported: PNG, JPEG, GIF, WebP.", isError: true)
         }
 
-        let base64 = data.base64EncodedString()
-        return ToolResult("[IMAGE_BASE64:\(mediaType):\(base64)]")
+        // Downscale large images to stay within API token limits
+        let finalData: Data
+        let finalMediaType: String
+        if data.count > Self.maxImageBytes, let image = NSImage(contentsOfFile: path) {
+            let scale = sqrt(Double(Self.maxImageBytes) / Double(data.count))
+            let newSize = NSSize(
+                width: max(1, image.size.width * scale),
+                height: max(1, image.size.height * scale)
+            )
+            let resized = NSImage(size: newSize)
+            resized.lockFocus()
+            image.draw(in: NSRect(origin: .zero, size: newSize),
+                       from: NSRect(origin: .zero, size: image.size),
+                       operation: .copy, fraction: 1.0)
+            resized.unlockFocus()
+
+            if let tiff = resized.tiffRepresentation,
+               let bitmap = NSBitmapImageRep(data: tiff),
+               let jpeg = bitmap.representation(using: .jpeg, properties: [.compressionFactor: 0.7]) {
+                finalData = jpeg
+                finalMediaType = "image/jpeg"
+            } else {
+                finalData = data
+                finalMediaType = mediaType
+            }
+        } else {
+            finalData = data
+            finalMediaType = mediaType
+        }
+
+        let base64 = finalData.base64EncodedString()
+        return ToolResult("[IMAGE_BASE64:\(finalMediaType):\(base64)]")
     }
 
     private func encodeClipboardImage() async -> ToolResult {
         let pb = NSPasteboard.general
 
-        // Try to get image data from clipboard
-        if let data = pb.data(forType: .png) {
-            let base64 = data.base64EncodedString()
-            return ToolResult("[IMAGE_BASE64:image/png:\(base64)]")
-        }
-
-        if let data = pb.data(forType: .tiff),
-           let bitmapRep = NSBitmapImageRep(data: data),
-           let pngData = bitmapRep.representation(using: .png, properties: [:]) {
-            let base64 = pngData.base64EncodedString()
-            return ToolResult("[IMAGE_BASE64:image/png:\(base64)]")
+        // Try to get image from clipboard and downscale if needed
+        if let image = NSImage(pasteboard: pb) {
+            if let encoded = Self.encodeImage(image) {
+                return ToolResult("[IMAGE_BASE64:\(encoded.mediaType):\(encoded.data)]")
+            }
         }
 
         // Try file URL on clipboard

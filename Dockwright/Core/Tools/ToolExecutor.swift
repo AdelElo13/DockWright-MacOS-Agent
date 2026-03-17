@@ -5,6 +5,13 @@ import os
 nonisolated final class ToolExecutor: @unchecked Sendable {
     private let registry: ToolRegistry
 
+    /// Callback to ask user for approval before running risky tools.
+    /// Returns true if approved, false if denied.
+    var onApprovalNeeded: ((_ toolName: String, _ description: String) async -> Bool)?
+
+    /// Tools that are considered risky and require approval
+    private let riskyTools: Set<String> = ["shell", "browser_action"]
+
     nonisolated init(registry: ToolRegistry = .shared) {
         self.registry = registry
     }
@@ -17,6 +24,24 @@ nonisolated final class ToolExecutor: @unchecked Sendable {
     func executeTool(name: String, arguments: [String: Any]) async -> ToolResult {
         guard let tool = registry.get(name: name) else {
             return ToolResult("Unknown tool: \(name)", isError: true)
+        }
+
+        // Check if approval is required for risky tools
+        let requireApproval = UserDefaults.standard.object(forKey: "requireApprovalForRisky") as? Bool ?? true
+        if requireApproval && riskyTools.contains(name) {
+            let description: String
+            if name == "shell", let cmd = arguments["command"] as? String {
+                description = "Run shell command: \(cmd)"
+            } else {
+                description = "Execute \(name) tool"
+            }
+
+            if let approvalHandler = onApprovalNeeded {
+                let approved = await approvalHandler(name, description)
+                if !approved {
+                    return ToolResult("Tool '\(name)' was denied by user", isError: true)
+                }
+            }
         }
 
         let timeout: UInt64 = name == "shell" ? 120_000_000_000 : 30_000_000_000

@@ -90,16 +90,22 @@ final class AuthManager: NSObject, @unchecked Sendable {
     var anthropicApiKey: String {
         _ = keychainVersion
         // 1. Prefer a real API key (sk-ant-api...)
-        if let key = KeychainHelper.read(key: "anthropic_api_key"), !key.isEmpty {
+        if let key = KeychainHelper.read(key: "anthropic_api_key"), !key.isEmpty,
+           !key.hasPrefix("sk-ant-oat") {
             return key
         }
-        // 2. Try fresh OAuth token from Claude Code's keychain
+        // 2. Dockwright's own OAuth token (from sign-in flow) — use if present
+        if let oauth = KeychainHelper.read(key: "claude_oauth_token"), !oauth.isEmpty {
+            return oauth
+        }
+        // 3. Try fresh (non-expired) OAuth token from Claude Code's keychain
         if let freshToken = Self.readFreshClaudeCodeOAuthToken() {
             return freshToken
         }
-        // 3. Fall back to previously-imported OAuth token
-        if let oauth = KeychainHelper.read(key: "claude_oauth_token"), !oauth.isEmpty {
-            return oauth
+        // 4. Check if we have a stored OAuth token that might be expired but refreshable
+        if let stored = KeychainHelper.read(key: "anthropic_api_key"), !stored.isEmpty, stored.hasPrefix("sk-ant-oat") {
+            Self.triggerBackgroundTokenRefresh()
+            return stored
         }
         return ""
     }
@@ -113,6 +119,18 @@ final class AuthManager: NSObject, @unchecked Sendable {
 
     func saveAnthropicKey(_ key: String) {
         KeychainHelper.save(key: "anthropic_api_key", value: key)
+        keychainVersion += 1
+    }
+
+    /// Generic key save that bumps keychainVersion so observers see the change.
+    func saveKey(_ keychainKey: String, value: String) {
+        KeychainHelper.save(key: keychainKey, value: value)
+        keychainVersion += 1
+    }
+
+    /// Generic key delete that bumps keychainVersion so observers see the change.
+    func deleteKey(_ keychainKey: String) {
+        KeychainHelper.delete(key: keychainKey)
         keychainVersion += 1
     }
 
@@ -160,20 +178,26 @@ final class AuthManager: NSObject, @unchecked Sendable {
 
     /// Reads the current OAuth access token directly from Claude Code's keychain.
     /// Cached for 120s to avoid blocking on SecItemCopyMatching.
+    /// Also caches failures for 120s to prevent log spam when Claude Code token is expired.
     private static let _oauthCacheLock = NSLock()
     private static nonisolated(unsafe) var _cachedOAuthToken: String?
     private static nonisolated(unsafe) var _cachedOAuthExpiry: Date = .distantPast
     private static nonisolated(unsafe) var _oauthFetchInProgress = false
+    /// When true, indicates the cache holds a "no token" result (negative cache).
+    private static nonisolated(unsafe) var _cachedOAuthIsNegative = false
 
     static func readFreshClaudeCodeOAuthToken() -> String? {
         let now = Date()
-        let cached = _oauthCacheLock.withLock { () -> String? in
-            if now.timeIntervalSince(_cachedOAuthExpiry) < 120, let t = _cachedOAuthToken {
-                return t
+        let (cachedToken, isNegative) = _oauthCacheLock.withLock { () -> (String?, Bool) in
+            if now.timeIntervalSince(_cachedOAuthExpiry) < 120 {
+                return (_cachedOAuthToken, _cachedOAuthIsNegative)
             }
-            return nil
+            return (nil, false)
         }
-        if let cached { return cached }
+        // If we have a cached positive result, return it
+        if let cachedToken { return cachedToken }
+        // If we have a cached negative result (no valid token), return nil without re-fetching
+        if isNegative { return nil }
 
         let shouldFetch = _oauthCacheLock.withLock { () -> Bool in
             if _oauthFetchInProgress { return false }
@@ -194,35 +218,52 @@ final class AuthManager: NSObject, @unchecked Sendable {
         var item: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &item)
         guard status == errSecSuccess, let data = item as? Data else {
+            _oauthCacheLock.withLock { _cachedOAuthToken = nil; _cachedOAuthIsNegative = true; _cachedOAuthExpiry = now }
             return nil
         }
         guard let rawStr = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
               !rawStr.isEmpty else {
+            _oauthCacheLock.withLock { _cachedOAuthToken = nil; _cachedOAuthIsNegative = true; _cachedOAuthExpiry = now }
             return nil
         }
         guard let json = try? JSONSerialization.jsonObject(with: Data(rawStr.utf8)) as? [String: Any],
               let oauth = json["claudeAiOauth"] as? [String: Any],
               let accessToken = oauth["accessToken"] as? String, !accessToken.isEmpty,
               accessToken.hasPrefix("sk-ant-oat") else {
+            _oauthCacheLock.withLock { _cachedOAuthToken = nil; _cachedOAuthIsNegative = true; _cachedOAuthExpiry = now }
             return nil
         }
+        // Always store the refresh token if available (needed for token refresh)
+        if let refreshToken = oauth["refreshToken"] as? String, !refreshToken.isEmpty {
+            KeychainHelper.save(key: "claude_refresh_token", value: refreshToken)
+        }
+        // Store expiry for refresh logic
+        if let expiresAtMs = oauth["expiresAt"] as? Double {
+            let expiresEpoch = Int(expiresAtMs / 1000)
+            KeychainHelper.save(key: "claude_token_expires", value: "\(expiresEpoch)")
+        }
+
         // Check expiry
         if let expiresAtMs = oauth["expiresAt"] as? Double {
             let expiresAt = Date(timeIntervalSince1970: expiresAtMs / 1000)
             if expiresAt < Date() {
+                AppLog.security.info("[OAuth] Token from Claude Code is expired, triggering refresh")
                 Self.triggerBackgroundTokenRefresh()
+                // Cache the negative result so we don't re-check for 120s
+                _oauthCacheLock.withLock { _cachedOAuthToken = nil; _cachedOAuthIsNegative = true; _cachedOAuthExpiry = now }
                 return nil
             }
         }
         _oauthCacheLock.withLock {
             _cachedOAuthToken = accessToken
+            _cachedOAuthIsNegative = false
             _cachedOAuthExpiry = now
         }
         return accessToken
     }
 
     static func invalidateOAuthCache() {
-        _oauthCacheLock.withLock { _cachedOAuthToken = nil; _cachedOAuthExpiry = .distantPast }
+        _oauthCacheLock.withLock { _cachedOAuthToken = nil; _cachedOAuthIsNegative = false; _cachedOAuthExpiry = .distantPast }
     }
 
     // MARK: - Proactive Token Sync
@@ -250,15 +291,114 @@ final class AuthManager: NSObject, @unchecked Sendable {
         if !currentKey.isEmpty && !currentKey.hasPrefix("sk-ant-oat") {
             return  // User has a real API key, don't overwrite
         }
+        // If user signed in via Dockwright's own OAuth flow, don't try Claude Code's keychain
+        if let ownOAuth = KeychainHelper.read(key: "claude_oauth_token"), !ownOAuth.isEmpty {
+            return
+        }
         invalidateOAuthCache()
-        guard let freshToken = readFreshClaudeCodeOAuthToken() else { return }
-        KeychainHelper.save(key: "anthropic_api_key", value: freshToken)
-        AppLog.security.info("[OAuth] Token sync: imported token from Claude Code")
+
+        // Try reading a fresh (non-expired) token from Claude Code's keychain
+        if let freshToken = readFreshClaudeCodeOAuthToken() {
+            KeychainHelper.save(key: "anthropic_api_key", value: freshToken)
+            AppLog.security.info("[OAuth] Token sync: imported token from Claude Code")
+            return
+        }
+
+        // Token is expired — try to refresh using stored refresh token
+        Task {
+            if let refreshed = await refreshClaudeOAuthToken() {
+                KeychainHelper.save(key: "anthropic_api_key", value: refreshed)
+                KeychainHelper.save(key: "claude_oauth_token", value: refreshed)
+                _oauthCacheLock.withLock {
+                    _cachedOAuthToken = refreshed
+                    _cachedOAuthExpiry = Date()
+                }
+                AppLog.security.info("[OAuth] Token refresh succeeded")
+            } else {
+                AppLog.security.warning("[OAuth] Token refresh failed — no valid credential")
+            }
+        }
     }
 
+    /// Cooldown: at most one background refresh attempt per 5 minutes.
+    private static nonisolated(unsafe) var _lastRefreshAttempt: Date = .distantPast
+    private static let _refreshCooldown: TimeInterval = 300  // 5 minutes
+
     private static func triggerBackgroundTokenRefresh() {
+        let now = Date()
+        let shouldRefresh = _refreshLock.withLock { () -> Bool in
+            guard now.timeIntervalSince(_lastRefreshAttempt) >= _refreshCooldown else { return false }
+            _lastRefreshAttempt = now
+            return true
+        }
+        guard shouldRefresh else { return }
         DispatchQueue.global(qos: .utility).async { syncTokenFromKeychain() }
     }
+
+    // MARK: - OAuth Token Refresh
+
+    /// Refreshes the Claude OAuth token using the stored refresh_token.
+    /// Returns the new access token, or nil if refresh failed.
+    static func refreshClaudeOAuthToken() async -> String? {
+        guard let storedRefreshToken = KeychainHelper.read(key: "claude_refresh_token"),
+              !storedRefreshToken.isEmpty else {
+            AppLog.security.warning("[OAuth] No refresh token stored — cannot refresh")
+            return nil
+        }
+
+        let clientId = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
+        let tokenURL = "https://console.anthropic.com/v1/oauth/token"
+
+        let params: [(String, String)] = [
+            ("grant_type", "refresh_token"),
+            ("refresh_token", storedRefreshToken),
+            ("client_id", clientId),
+        ]
+
+        var allowed = CharacterSet.alphanumerics
+        allowed.insert(charactersIn: "-._~")
+        let formBody = params
+            .map { "\($0.0)=\($0.1.addingPercentEncoding(withAllowedCharacters: allowed) ?? $0.1)" }
+            .joined(separator: "&")
+
+        guard let url = URL(string: tokenURL),
+              let bodyData = formBody.data(using: .utf8) else { return nil }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        request.httpBody = bodyData
+        request.timeoutInterval = 30
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            let httpStatus = (response as? HTTPURLResponse)?.statusCode ?? -1
+
+            guard httpStatus == 200,
+                  let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let newAccessToken = json["access_token"] as? String else {
+                let body = String(data: data.prefix(300), encoding: .utf8) ?? "<binary>"
+                AppLog.security.warning("[OAuth] Token refresh failed — HTTP \(httpStatus): \(body)")
+                return nil
+            }
+
+            // Store new refresh token if provided
+            if let newRefresh = json["refresh_token"] as? String, !newRefresh.isEmpty {
+                KeychainHelper.save(key: "claude_refresh_token", value: newRefresh)
+            }
+
+            // Store new expiry
+            let expiresIn = json["expires_in"] as? Int ?? 28800  // default 8 hours
+            let newExpiresAt = Date().addingTimeInterval(Double(expiresIn))
+            KeychainHelper.save(key: "claude_token_expires", value: "\(Int(newExpiresAt.timeIntervalSince1970))")
+
+            return newAccessToken
+        } catch {
+            AppLog.security.warning("[OAuth] Token refresh error: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    // formURLEncode is already defined elsewhere in this class
 
     // MARK: - Claude OAuth Sign In (Step 1: Open Browser)
 

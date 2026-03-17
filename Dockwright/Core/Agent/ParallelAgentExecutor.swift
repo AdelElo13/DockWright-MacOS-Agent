@@ -38,10 +38,20 @@ final class ParallelAgentExecutor: @unchecked Sendable {
         }
     }
 
-    // MARK: - Configuration
+    // MARK: - Configuration (wired to Agent Settings UI)
 
-    private let maxStepsPerTask = 15
-    private let maxRetriesPerStep = 2
+    private var maxStepsPerTask: Int {
+        let v = UserDefaults.standard.object(forKey: "agentMaxSteps") as? Int ?? 10
+        return max(1, min(v, 50))
+    }
+    private var maxRetriesPerStep: Int {
+        let autoRetry = UserDefaults.standard.object(forKey: "agentAutoRetry") as? Bool ?? true
+        return autoRetry ? 2 : 0
+    }
+    private var maxParallelTasks: Int {
+        let v = UserDefaults.standard.object(forKey: "maxParallelTasks") as? Int ?? 3
+        return max(1, min(v, 10))
+    }
 
     // MARK: - Observable State
 
@@ -101,18 +111,21 @@ final class ParallelAgentExecutor: @unchecked Sendable {
 
         let toolDefs = ToolRegistry.shared.anthropicToolDefinitions()
 
-        // Launch each sub-agent as an independent Swift Task so we can cancel
-        // them individually. We also wrap everything in a parent Task so
-        // cancelAll() can tear down the whole group.
+        // Launch sub-agents in parallel, respecting maxParallelTasks limit.
+        // Uses a sliding window: start N tasks, then add one as each finishes.
+        let limit = maxParallelTasks
         let parentTask = Task<[AgentTask], Never> { [weak self] in
             guard let self else { return tasks }
 
             return await withTaskGroup(of: AgentTask.self) { group in
-                for task in tasks {
+                var taskQueue = tasks[...]
+                var launched = 0
+
+                // Seed the group up to the concurrency limit
+                while launched < limit, let task = taskQueue.popFirst() {
+                    launched += 1
                     group.addTask { [weak self] in
                         guard let self else { return task }
-
-                        // Wrap in a child Task stored for individual cancellation
                         let handle = Task<AgentTask, Never> {
                             await self.runSubAgent(
                                 task: task,
@@ -123,9 +136,7 @@ final class ParallelAgentExecutor: @unchecked Sendable {
                                 toolDefinitions: toolDefs
                             )
                         }
-
                         self.lock.withLock { self.taskHandles[task.id] = handle }
-
                         return await handle.value
                     }
                 }
@@ -134,6 +145,25 @@ final class ParallelAgentExecutor: @unchecked Sendable {
                 for await completed in group {
                     results.append(completed)
                     self.lock.withLock { _ = self.taskHandles.removeValue(forKey: completed.id) }
+
+                    // Launch next task from the queue
+                    if let task = taskQueue.popFirst() {
+                        group.addTask { [weak self] in
+                            guard let self else { return task }
+                            let handle = Task<AgentTask, Never> {
+                                await self.runSubAgent(
+                                    task: task,
+                                    toolExecutor: toolExecutor,
+                                    llmService: llmService,
+                                    apiKey: apiKey,
+                                    model: model,
+                                    toolDefinitions: toolDefs
+                                )
+                            }
+                            self.lock.withLock { self.taskHandles[task.id] = handle }
+                            return await handle.value
+                        }
+                    }
                 }
 
                 return results

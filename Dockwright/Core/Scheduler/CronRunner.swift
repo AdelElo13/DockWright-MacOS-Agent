@@ -6,14 +6,18 @@ import os
 final class CronRunner: @unchecked Sendable {
     private let logger = Logger(subsystem: "com.Aatje.Dockwright", category: "CronRunner")
     private let store: CronStore
-    private let channel: NotificationChannel
+    private let channel: MultiChannel
     private let checkInterval: TimeInterval = 30
     private var timer: DispatchSourceTimer?
     private let queue = DispatchQueue(label: "com.Aatje.Dockwright.CronRunner", qos: .utility)
     private var lastCheckMinute: Int = -1
     private(set) var isRunning = false
 
-    init(store: CronStore, channel: NotificationChannel) {
+    /// Callback to send action text to the LLM for execution.
+    /// When set, cron jobs send their action to Dockwright instead of just showing a notification.
+    var onExecuteAction: ((_ jobName: String, _ actionText: String) -> Void)?
+
+    init(store: CronStore, channel: MultiChannel) {
         self.store = store
         self.channel = channel
     }
@@ -30,7 +34,7 @@ final class CronRunner: @unchecked Sendable {
 
         // Request notification permission on start
         Task {
-            await channel.requestPermission()
+            await channel.requestPermissions()
         }
 
         // Catch-up: check for jobs that were missed while app was closed
@@ -147,47 +151,41 @@ final class CronRunner: @unchecked Sendable {
     }
 
     private func executeJob(_ job: CronJob) {
+        // Extract the action text
+        let actionText: String
         switch job.action {
-        case .notification(let title, let body):
-            Task {
-                do {
-                    try await channel.send(title: title, body: body)
-                    logger.info("Notification delivered for job: \(job.name)")
-                } catch {
-                    logger.error("Failed to deliver notification for \(job.name): \(error.localizedDescription)")
-                }
-            }
-
+        case .notification(_, let body):
+            actionText = body
         case .message(let text):
-            // Deliver as notification for now
+            actionText = text
+        case .tool(let name, let arguments):
+            let argsStr = arguments.map { "\($0.key)=\($0.value)" }.joined(separator: ", ")
+            actionText = argsStr.isEmpty ? "Run the \(name) tool" : "Run the \(name) tool with \(argsStr)"
+        }
+
+        // If we have an LLM callback, send the action to Dockwright for execution
+        if let handler = onExecuteAction, !actionText.isEmpty {
+            logger.info("Sending cron job '\(job.name)' to Dockwright: \(actionText.prefix(80))")
+
+            // Also send a notification so user knows a job fired
             Task {
-                do {
-                    try await channel.send(title: "Dockwright", body: text)
-                } catch {
-                    logger.error("Failed to deliver message for \(job.name): \(error.localizedDescription)")
-                }
+                await channel.broadcast(
+                    title: "Dockwright: \(job.name)",
+                    body: "Running scheduled task...",
+                    category: .scheduledTask
+                )
             }
 
-        case .tool(let name, let arguments):
-            // Execute via ToolRegistry
+            handler(job.name, "[Scheduled job: \(job.name)] \(actionText)")
+        } else {
+            // Fallback: just send a notification
             Task {
-                let tool = ToolRegistry.shared.get(name: name)
-                if let tool {
-                    let args: [String: Any] = Dictionary(uniqueKeysWithValues: arguments.map { ($0.key, $0.value as Any) })
-                    do {
-                        let result = try await tool.execute(arguments: args)
-                        logger.info("Tool \(name) executed for job \(job.name): \(result.output.prefix(100))")
-                        // Send result as notification
-                        try await channel.send(
-                            title: "Dockwright: \(job.name)",
-                            body: result.isError ? "Error: \(result.output)" : result.output
-                        )
-                    } catch {
-                        logger.error("Tool execution failed for \(job.name): \(error.localizedDescription)")
-                    }
-                } else {
-                    logger.error("Tool '\(name)' not found for job \(job.name)")
-                }
+                await channel.broadcast(
+                    title: "Dockwright: \(job.name)",
+                    body: actionText.isEmpty ? job.name : actionText,
+                    category: .scheduledTask
+                )
+                logger.info("Notification delivered for job: \(job.name)")
             }
         }
     }
