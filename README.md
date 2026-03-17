@@ -40,13 +40,19 @@ It doesn't just chat. It acts.
 - Image analysis — drag, paste, or screenshot
 
 ### Tools
-Shell commands, file operations, web search, clipboard, system info, Apple Reminders, Apple Notes, Contacts — 28 tools the AI can call autonomously.
+Shell commands, file operations, web search, clipboard, system info, Apple Reminders, Apple Notes, Contacts, iMessage — 30 tools the AI can call autonomously.
+
+### UI Automation (ProcessSymbiosis)
+Direct control of any macOS app via the Accessibility API. Click buttons, type text, press keyboard shortcuts, read UI elements — no pixel-guessing. Live AXObserver event stream monitors the frontmost app in real time, building a semantic model the AI can act on instantly.
 
 ### Voice
 Hands-free operation with Apple Speech Recognition. Say "Hey Dockwright" to wake, speak naturally, get a spoken response. Silence detection, continuous mode, and session coordination to prevent audio conflicts.
 
 ### Screen Awareness
 A 15-second ambient loop captures your screen, runs OCR, and feeds context to the AI. It knows which app is active, what you're reading, and which browser tabs are open — across Safari, Chrome, Firefox, Edge, Arc, and Brave.
+
+### iMessage
+Read conversations, search messages, and send texts — directly from the AI. Reads the native Messages database and sends via AppleScript.
 
 ### Scheduling
 Full cron engine with natural language. "Remind me in 2 minutes to stretch" just works. Recurring jobs, one-shot reminders, missed-job catch-up on relaunch, and native macOS notifications.
@@ -99,15 +105,15 @@ Dockwright/
 │   ├── LLM/       Multi-provider streaming
 │   ├── Memory/    SQLite + FTS5, auto-formation, error memory
 │   ├── Scheduler/ Cron engine, reminders
-│   ├── Sensory/   Screen capture, OCR, browser tabs, world model
+│   ├── Sensory/   Screen capture, OCR, browser tabs, world model, ProcessSymbiosis, AX control
 │   ├── Skills/    Markdown skill loader
-│   ├── Tools/     28 tools
+│   ├── Tools/     30 tools (incl. UI automation, iMessage)
 │   └── Voice/     STT, TTS, wake word
 ├── UI/            SwiftUI (chat, sidebar, settings, onboarding)
 └── Utilities/     Keychain, SQLite, OAuth, logging
 ```
 
-**88 Swift files** · **26,000 lines** · **Zero external dependencies**
+**92 Swift files** · **27,000+ lines** · **Zero external dependencies**
 
 ---
 
