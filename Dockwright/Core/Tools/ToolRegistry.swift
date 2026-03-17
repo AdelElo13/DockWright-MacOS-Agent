@@ -69,6 +69,22 @@ nonisolated final class ToolRegistry: @unchecked Sendable {
         }
     }
 
+    /// Generate MCP-format tool definitions for the MCP server.
+    func mcpToolDefinitions() -> [[String: Any]] {
+        let toolList = allTools
+        return toolList.map { tool in
+            [
+                "name": sanitizeName(tool.name),
+                "description": tool.description,
+                "inputSchema": [
+                    "type": "object",
+                    "properties": tool.parametersSchema,
+                    "required": requiredParams(from: tool.parametersSchema)
+                ] as [String: Any]
+            ] as [String: Any]
+        }
+    }
+
     /// Sanitize tool name to match Anthropic's pattern: ^[a-zA-Z0-9_-]{1,64}$
     private func sanitizeName(_ name: String) -> String {
         let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "_-"))

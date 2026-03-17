@@ -288,6 +288,7 @@ final class AppState {
         tools.register(ShortcutsTool())
         tools.register(iMessageTool())
         tools.register(UIAutomationTool())
+        tools.register(DecomposeTaskTool())
 
         // Start sensory ambient loop (screen capture + OCR every 15s)
         // This is non-fatal -- if screen capture permission is denied, it degrades gracefully
@@ -312,6 +313,9 @@ final class AppState {
 
         // Start AI-to-AI server on port 8766 for programmatic testing
         startAIToAIServer()
+
+        // Start MCP server on port 8767 for standard tool discovery/execution
+        startMCPServer()
 
         // Start bot services (Telegram + WhatsApp) if configured
         telegramBot.onChatMessage = { [weak self] from, userText, response in
@@ -1220,6 +1224,16 @@ final class AppState {
                 log.error("[A2A] Failed to start: \(error)")
             }
         }
+    }
+
+    private func startMCPServer() {
+        let executor = toolExecutor
+        Task {
+            let mcp = MCPServer.shared
+            await mcp.setExecutor(executor)
+            await mcp.start()
+        }
+        log.info("[MCP] Server queued on port 8767")
     }
 
     /// Runs the full LLM + tool loop in isolation — same as the UI chat but without touching UI state.

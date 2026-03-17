@@ -133,6 +133,13 @@ final class AgentExecutor: @unchecked Sendable {
     ) async -> [StepResult] {
         var results: [StepResult] = []
 
+        // Prevent system sleep while agent is executing
+        let activity = ProcessInfo.processInfo.beginActivity(
+            options: [.userInitiated, .idleSystemSleepDisabled],
+            reason: "Dockwright agent executing plan: \(plan.goal.prefix(80))"
+        )
+        defer { ProcessInfo.processInfo.endActivity(activity) }
+
         updateState(.planning)
         onProgress(.planning)
 
