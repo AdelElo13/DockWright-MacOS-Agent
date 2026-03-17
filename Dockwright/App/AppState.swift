@@ -260,15 +260,8 @@ final class AppState {
         heartbeat = HeartbeatRunner(channel: multiChannel, cronStore: cronStore)
         heartbeat.start()
 
-        // Set up memory -- failure is non-fatal, app works without it
-        do {
-            try memoryStore.setup()
-            memoryFormation = MemoryFormation(store: memoryStore)
-            tools.register(MemoryTool(store: memoryStore))
-            log.info("[Memory] Memory store + auto-formation initialized")
-        } catch {
-            log.error("[Memory] Failed to initialize (non-fatal, memory features disabled): \(error.localizedDescription)")
-        }
+        // Set up memory without blocking initial UI rendering.
+        initializeMemoryStoreAsync()
 
         // Register core tools
         tools.register(VisionTool())
@@ -301,12 +294,16 @@ final class AppState {
         tools.register(DecomposeTaskTool())
         tools.register(ChromeCDPTool())
 
-        // Start sensory ambient loop (screen capture + OCR every 15s)
-        // This is non-fatal -- if screen capture permission is denied, it degrades gracefully
+        // Ambient sensory loop: screen capture + OCR every 15s, browser tab polling,
+        // system state updates. All nonisolated services, runs on background queues.
         worldModel.startAmbientLoop()
 
-        // Start ProcessSymbiosis — live AX event monitoring for frontmost app
-        ProcessSymbiosis.shared.start()
+        // ProcessSymbiosis: start lazily after 3s to avoid starving the main run loop at launch.
+        // AX observer callbacks are throttled (4x/sec flush) on a background run loop thread.
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            ProcessSymbiosis.shared.start()
+        }
 
         // Import Claude Code OAuth token if available
         authManager.importClaudeCodeTokenIfNeeded()
@@ -316,11 +313,8 @@ final class AppState {
         // (e.g., if selectedModel was Anthropic but user only has Gemini key now)
         prefs.syncModelToAvailableProvider(authManager: authManager)
 
-        loadConversations()
-        refreshBadgeCounts()
-
-        // Prune expired conversations on launch (respect retention setting)
-        pruneExpiredConversations()
+        // Load persisted UI data and prune old conversations off the main thread.
+        bootstrapConversationAndBadgeDataAsync()
 
         // Start AI-to-AI server on port 8766 for programmatic testing
         startAIToAIServer()
@@ -347,6 +341,54 @@ final class AppState {
         if !modelRegistry.isCacheFresh {
             Task.detached {
                 await ModelRegistry.shared.refreshAll()
+            }
+        }
+    }
+
+    /// Initialize SQLite-backed memory on a background task so launch remains responsive.
+    private func initializeMemoryStoreAsync() {
+        Task(priority: .utility) { [weak self] in
+            guard let self else { return }
+            do {
+                try self.memoryStore.setup()
+                await MainActor.run { [weak self] in
+                    guard let self else { return }
+                    self.memoryFormation = MemoryFormation(store: self.memoryStore)
+                    self.tools.register(MemoryTool(store: self.memoryStore))
+                }
+                log.info("[Memory] Memory store + auto-formation initialized")
+                // Run lightweight consolidation (dedup + prune) on launch
+                self.memoryStore.consolidate()
+            } catch {
+                log.error("[Memory] Failed to initialize (non-fatal, memory features disabled): \(error.localizedDescription)")
+            }
+        }
+    }
+
+    /// Loads conversation/sidebar badge state after launch and prunes retention data in one pass.
+    private func bootstrapConversationAndBadgeDataAsync() {
+        let retentionDays = prefs.conversationRetentionDays
+
+        Task(priority: .utility) { [weak self] in
+            guard let self else { return }
+
+            if retentionDays > 0 {
+                let cutoff = Date().addingTimeInterval(-Double(retentionDays) * 86400)
+                let removed = self.conversationStore.prune(olderThan: cutoff)
+                if removed > 0 {
+                    log.info("[Conversations] Pruned \(removed) expired conversations on launch")
+                }
+            }
+
+            let loadedConversations = self.conversationStore.listAll()
+            let loadedGoalCount = self.goalStore.listGoals(activeOnly: true).count
+            let loadedCronCount = self.cronStore.listAll().count
+
+            await MainActor.run { [weak self] in
+                guard let self else { return }
+                self.conversations = loadedConversations
+                self.goalCount = loadedGoalCount
+                self.cronJobCount = loadedCronCount
             }
         }
     }
@@ -449,12 +491,14 @@ final class AppState {
 
         Guidelines:
         - Be concise and direct
-        - Use tools proactively when they'd help answer the question
+        - Only use tools when they're clearly needed to answer the question. Do NOT use tools speculatively
+        - For code/debugging questions: read the actual source code with file/project_context — don't screenshot
+        - Only use screenshot when the user explicitly asks to see or capture their screen visually
         - For reminders/scheduling, use the scheduler tool with create_reminder action
-        - When the user mentions something on screen, reference your screen awareness
+        - When the user mentions something on screen, reference your screen awareness context (already provided above)
         - When showing code, use markdown code blocks with language tags
         - When the user says "this file" or "this page", use screen context to determine what they mean
-        - If clipboard has code when the user pastes, offer to explain or fix it
+        - Think about which tool is the RIGHT one before calling it. Fewer precise tool calls > many speculative ones
         """
 
         // Language preference: use voice language setting to determine response language
@@ -496,6 +540,19 @@ final class AppState {
         }
 
         return prompt
+    }
+
+    /// Auto-inject relevant memory facts for the current user message.
+    /// Returns a concise string to prepend to the system prompt, or empty if nothing relevant.
+    func memoryContextForMessage(_ message: String) -> String {
+        let facts = memoryStore.topRelevant(forMessage: message, limit: 5)
+        guard !facts.isEmpty else { return "" }
+
+        var lines = ["\nWhat you know about this user:"]
+        for fact in facts {
+            lines.append("- \(fact.content)")
+        }
+        return lines.joined(separator: "\n")
     }
 
     // MARK: - Send Message
@@ -626,6 +683,16 @@ final class AppState {
         var apiKey = apiKey
         var llmMessages = buildLLMMessages(images: images)
         log.info("[RunLLMLoop] Built \(llmMessages.count) messages")
+
+        // Auto-inject relevant memory facts into the system message
+        if let lastUserMsg = currentConversation.messages.last(where: { $0.role == .user }) {
+            let memCtx = memoryContextForMessage(lastUserMsg.content)
+            if !memCtx.isEmpty,
+               let sysIdx = llmMessages.firstIndex(where: { $0.role == "system" }) {
+                llmMessages[sysIdx].content = (llmMessages[sysIdx].content ?? "") + memCtx
+                log.info("[Memory] Injected \(memCtx.components(separatedBy: "\n").count - 1) relevant facts into system prompt")
+            }
+        }
         let maxRetries = 3
         var retryCount = 0
 
@@ -633,13 +700,24 @@ final class AppState {
         await autoSummarizeIfNeeded()
 
         // Tool use loop — keeps calling LLM until no more tool calls
+        // Budget is per-message (tool loop), not cumulative across conversation
         let tokenBudget = UserDefaults.standard.object(forKey: "agentTokenBudget") as? Int ?? 50000
+        var messageTokens = 0
+        let maxToolLoops = 10
+        var toolLoopCount = 0
         while true {
             if Task.isCancelled { break }
 
-            // Enforce token budget from Agent Settings
-            if tokenCounter.totalTokens > tokenBudget {
-                log.info("[AppState] Token budget exhausted (\(self.tokenCounter.totalTokens)/\(tokenBudget))")
+            // Enforce token budget per message/tool-loop
+            if messageTokens > tokenBudget {
+                log.info("[AppState] Token budget exhausted for this message (\(messageTokens)/\(tokenBudget))")
+                let idx = currentConversation.messages.count - 1
+                if idx >= 0 && currentConversation.messages[idx].role == .assistant {
+                    currentConversation.messages[idx].content += "\n\n⚠️ Token budget bereikt (\(messageTokens)/\(tokenBudget)). Stuur een nieuw bericht of start een nieuwe thread."
+                    currentConversation.messages[idx].isStreaming = false
+                } else {
+                    currentConversation.messages.append(ChatMessage(role: .error, content: "⚠️ Token budget bereikt (\(messageTokens)/\(tokenBudget)). Stuur een nieuw bericht of start een nieuwe thread."))
+                }
                 break
             }
 
@@ -666,7 +744,8 @@ final class AppState {
                     }
                 }
 
-                // Record tokens
+                // Record tokens (both per-message and cumulative for cost display)
+                messageTokens += response.inputTokens + response.outputTokens
                 tokenCounter.recordUsage(input: response.inputTokens, output: response.outputTokens)
 
                 // Log LLM response to inspector
@@ -746,6 +825,11 @@ final class AppState {
                     // Reset streaming text for next LLM response
                     streamingText = ""
                     currentConversation.messages[assistantIndex].content = ""
+                    toolLoopCount += 1
+                    if toolLoopCount >= maxToolLoops {
+                        log.info("[RunLLMLoop] Max tool loops reached (\(maxToolLoops))")
+                        break
+                    }
                     continue // Loop back for next LLM response
                 }
 
@@ -1058,6 +1142,7 @@ final class AppState {
         streamingText = ""
         conversationSummary = ""
         lastSummarizedCount = 0
+        tokenCounter.reset()
         loadConversations()
     }
 
@@ -1069,6 +1154,7 @@ final class AppState {
 
         if let conv = conversationStore.load(id: id) {
             currentConversation = conv
+            tokenCounter.reset()
             streamingText = ""
             conversationSummary = ""
             lastSummarizedCount = 0
@@ -1111,12 +1197,10 @@ final class AppState {
         let days = prefs.conversationRetentionDays
         guard days > 0 else { return } // 0 = never delete
         let cutoff = Date().addingTimeInterval(-Double(days) * 86400)
-        for summary in conversationStore.listAll() {
-            if summary.updatedAt < cutoff {
-                conversationStore.delete(id: summary.id)
-            }
+        let removed = conversationStore.prune(olderThan: cutoff)
+        if removed > 0 {
+            loadConversations()
         }
-        loadConversations()
     }
 
     // MARK: - Voice

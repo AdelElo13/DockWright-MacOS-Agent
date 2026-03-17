@@ -279,7 +279,7 @@ final class AuthManager: NSObject, @unchecked Sendable {
                 Self.syncTokenFromKeychain()
             }
         }
-        DispatchQueue.global(qos: .utility).async { Self.syncTokenFromKeychain() }
+        Task { @MainActor in Self.syncTokenFromKeychain() }
     }
 
     static func stopProactiveTokenSync() {
@@ -332,7 +332,7 @@ final class AuthManager: NSObject, @unchecked Sendable {
             return true
         }
         guard shouldRefresh else { return }
-        DispatchQueue.global(qos: .utility).async { syncTokenFromKeychain() }
+        Task { @MainActor in syncTokenFromKeychain() }
     }
 
     // MARK: - OAuth Token Refresh

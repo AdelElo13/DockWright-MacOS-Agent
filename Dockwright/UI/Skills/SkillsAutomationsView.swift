@@ -81,49 +81,7 @@ struct SkillsAutomationsView: View {
     // MARK: - Skill Row
 
     private func skillRow(_ skill: SkillLoader.Skill) -> some View {
-        HStack(spacing: DockwrightTheme.Spacing.sm) {
-            Image(systemName: skill.source == "builtin" ? "star.fill" : "doc.text.fill")
-                .font(.system(size: 14))
-                .foregroundStyle(skill.source == "builtin" ? DockwrightTheme.caution : DockwrightTheme.primary)
-                .frame(width: 24)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(skill.name)
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                Text(skill.description)
-                    .font(DockwrightTheme.Typography.caption)
-                    .foregroundStyle(.tertiary)
-                    .lineLimit(2)
-            }
-
-            Spacer()
-
-            if !skill.requires.isEmpty {
-                Text(skill.requires.joined(separator: ", "))
-                    .font(DockwrightTheme.Typography.captionMono)
-                    .foregroundStyle(.quaternary)
-            }
-
-            if skill.source != "builtin" {
-                Button {
-                    deleteSkill(skill)
-                } label: {
-                    Image(systemName: "trash")
-                        .font(.system(size: 12))
-                        .foregroundStyle(.tertiary)
-                }
-                .buttonStyle(.plain)
-                .help("Delete skill")
-            }
-        }
-        .padding(.horizontal, DockwrightTheme.Spacing.md)
-        .padding(.vertical, DockwrightTheme.Spacing.sm)
-        .background(DockwrightTheme.Surface.card)
-        .clipShape(RoundedRectangle(cornerRadius: DockwrightTheme.Radius.md))
-        .contentShape(Rectangle())
-        .onTapGesture {
+        Button {
             appState.showSkillsAutomations = false
             let prompt: String
             if skill.source == "builtin" {
@@ -134,7 +92,50 @@ struct SkillsAutomationsView: View {
             Task {
                 await appState.sendMessage(prompt)
             }
+        } label: {
+            HStack(spacing: DockwrightTheme.Spacing.sm) {
+                Image(systemName: skill.source == "builtin" ? "star.fill" : "doc.text.fill")
+                    .font(.system(size: 14))
+                    .foregroundStyle(skill.source == "builtin" ? DockwrightTheme.caution : DockwrightTheme.primary)
+                    .frame(width: 24)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(skill.name)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                    Text(skill.description)
+                        .font(DockwrightTheme.Typography.caption)
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(2)
+                }
+
+                Spacer()
+
+                if !skill.requires.isEmpty {
+                    Text(skill.requires.joined(separator: ", "))
+                        .font(DockwrightTheme.Typography.captionMono)
+                        .foregroundStyle(.quaternary)
+                }
+
+                if skill.source != "builtin" {
+                    Button {
+                        deleteSkill(skill)
+                    } label: {
+                        Image(systemName: "trash")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.tertiary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Delete skill")
+                }
+            }
+            .padding(.horizontal, DockwrightTheme.Spacing.md)
+            .padding(.vertical, DockwrightTheme.Spacing.sm)
+            .background(DockwrightTheme.Surface.card)
+            .clipShape(RoundedRectangle(cornerRadius: DockwrightTheme.Radius.md))
         }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Helpers

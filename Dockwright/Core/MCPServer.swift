@@ -210,13 +210,7 @@ actor MCPServer {
         mcpLog.info("[MCP] Calling tool: \(toolName)")
         let startTime = Date()
 
-        let toolResult: ToolResult
-        do {
-            toolResult = try await executor.executeTool(name: toolName, arguments: arguments)
-        } catch {
-            sendResponse(conn: conn, status: 500, body: #"{"error":"Tool execution failed: \#(error.localizedDescription)"}"#)
-            return
-        }
+        let toolResult = await executor.executeTool(name: toolName, arguments: arguments)
         let output = toolResult.output
         let isError = toolResult.isError
 

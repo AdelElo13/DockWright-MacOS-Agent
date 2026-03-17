@@ -153,6 +153,30 @@ nonisolated final class ConversationStore: @unchecked Sendable {
         }
     }
 
+    /// Remove all conversations older than the cutoff in a single IO pass.
+    /// Returns the number of conversations removed.
+    func prune(olderThan cutoff: Date) -> Int {
+        ioQueue.sync {
+            var summaries = _loadIndexUnsafe()
+            let staleIds = summaries
+                .filter { $0.updatedAt < cutoff }
+                .map(\.id)
+
+            guard !staleIds.isEmpty else { return 0 }
+
+            let fm = FileManager.default
+            for id in staleIds {
+                let file = storageDir.appendingPathComponent("\(id).json")
+                try? fm.removeItem(at: file)
+                cache.removeValue(forKey: id)
+            }
+
+            summaries.removeAll { $0.updatedAt < cutoff }
+            _saveIndexUnsafe(summaries)
+            return staleIds.count
+        }
+    }
+
     // MARK: - List All
 
     func listAll() -> [ConversationSummary] {

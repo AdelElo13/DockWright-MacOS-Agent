@@ -1,4 +1,6 @@
 import Foundation
+import AppKit
+import CoreGraphics
 import os
 
 nonisolated private let screenshotLogger = Logger(subsystem: "com.dockwright", category: "ScreenshotTool")
@@ -115,8 +117,21 @@ nonisolated struct ScreenshotTool: Tool, @unchecked Sendable {
         let filePath = dir.appendingPathComponent(filename).path
 
         do {
-            // -l flag with window ID would be ideal, but -w captures frontmost window
-            let result = try await runProcess("/usr/sbin/screencapture", arguments: ["-x", "-w", filePath])
+            // Get the frontmost window ID via CGWindowList, then capture by ID.
+            // The -w flag is interactive (waits for click) — never use it unattended.
+            guard let windowID = frontmostWindowID() else {
+                // Fallback: capture full screen if we can't get window ID
+                let result = try await runProcess("/usr/sbin/screencapture", arguments: ["-x", filePath])
+                if result.status != 0 {
+                    return ToolResult("Screenshot failed: \(result.stderr)", isError: true)
+                }
+                if FileManager.default.fileExists(atPath: filePath) {
+                    return ToolResult("Full screen screenshot saved (could not identify frontmost window): \(filePath)")
+                }
+                return ToolResult("Screenshot failed — no file created.", isError: true)
+            }
+
+            let result = try await runProcess("/usr/sbin/screencapture", arguments: ["-x", "-l", "\(windowID)", filePath])
             if result.status != 0 {
                 return ToolResult("Screenshot failed: \(result.stderr)", isError: true)
             }
@@ -124,14 +139,38 @@ nonisolated struct ScreenshotTool: Tool, @unchecked Sendable {
             if FileManager.default.fileExists(atPath: filePath) {
                 return ToolResult("Frontmost window screenshot saved to: \(filePath)")
             } else {
-                return ToolResult("Screenshot command completed but file was not created. The user may have cancelled.", isError: true)
+                return ToolResult("Screenshot command completed but file was not created.", isError: true)
             }
         } catch {
             return ToolResult("Failed to run screencapture: \(error.localizedDescription)", isError: true)
         }
     }
 
+    /// Get the CGWindowID of the frontmost app's frontmost window.
+    private func frontmostWindowID() -> CGWindowID? {
+        guard let frontApp = NSWorkspace.shared.frontmostApplication else { return nil }
+        let pid = frontApp.processIdentifier
+
+        guard let windowList = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else {
+            return nil
+        }
+
+        // Find the first on-screen window belonging to the frontmost app
+        for window in windowList {
+            guard let ownerPID = window[kCGWindowOwnerPID as String] as? pid_t,
+                  ownerPID == pid,
+                  let windowID = window[kCGWindowNumber as String] as? CGWindowID,
+                  let layer = window[kCGWindowLayer as String] as? Int,
+                  layer == 0  // Normal window layer
+            else { continue }
+            return windowID
+        }
+        return nil
+    }
+
     private func captureArea() async -> ToolResult {
+        // Area capture requires user interaction (-i flag) — warn the LLM
+        // that this will show a crosshair cursor for the user to select a region.
         let dir = screenshotDirectory()
         let filename = generateFilename(prefix: "area")
         let filePath = dir.appendingPathComponent(filename).path
@@ -145,7 +184,7 @@ nonisolated struct ScreenshotTool: Tool, @unchecked Sendable {
             if FileManager.default.fileExists(atPath: filePath) {
                 return ToolResult("Area screenshot saved to: \(filePath)")
             } else {
-                return ToolResult("Screenshot command completed but file was not created. The user may have cancelled the selection.", isError: true)
+                return ToolResult("Area capture was cancelled by the user (no region selected).", isError: false)
             }
         } catch {
             return ToolResult("Failed to run screencapture: \(error.localizedDescription)", isError: true)

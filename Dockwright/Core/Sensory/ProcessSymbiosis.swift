@@ -9,6 +9,40 @@ nonisolated private let symbLog = Logger(subsystem: "com.Aatje.Dockwright", cate
 private let symbiosisSetupQueue = DispatchQueue(label: "com.Aatje.Dockwright.Symbiosis.setup", qos: .userInitiated)
 private let symbiosisAXQueue = DispatchQueue(label: "com.Aatje.Dockwright.Symbiosis.ax", qos: .userInitiated)
 
+/// Dedicated background thread + run loop for AXObserver sources.
+/// Keeps ALL accessibility event callbacks OFF the main run loop so they
+/// never starve scroll-wheel, keyboard, or mouse events.
+private final class AXRunLoopThread: Thread, @unchecked Sendable {
+    private(set) var runLoop: CFRunLoop!
+    private let ready = DispatchSemaphore(value: 0)
+
+    override func main() {
+        runLoop = CFRunLoopGetCurrent()
+        ready.signal()
+        // Keep the run loop alive forever with a dummy source
+        let ctx = CFRunLoopSourceContext()
+        let dummySource = withUnsafePointer(to: ctx) { ptr in
+            var mutable = ptr.pointee
+            return CFRunLoopSourceCreate(nil, 0, &mutable)!
+        }
+        CFRunLoopAddSource(runLoop, dummySource, .defaultMode)
+        CFRunLoopRun()
+    }
+
+    func waitUntilReady() {
+        ready.wait()
+    }
+}
+
+private let axRunLoopThread: AXRunLoopThread = {
+    let t = AXRunLoopThread()
+    t.name = "com.Aatje.Dockwright.AXRunLoop"
+    t.qualityOfService = .userInitiated
+    t.start()
+    t.waitUntilReady()
+    return t
+}()
+
 /// Live, bidirectional integration with running macOS applications via Accessibility API event stream.
 /// Replaces screenshot→OCR→pixel-click with AXObserver→semantic-model→direct-action.
 @MainActor
@@ -32,6 +66,11 @@ final class ProcessSymbiosis {
     private var monitoredApps: Set<pid_t> = []
     private var workspaceObserver: NSObjectProtocol?
     private var isRunning = false
+
+    // Throttle: buffer events on background, flush to main max 4x/sec
+    private nonisolated(unsafe) static var pendingEvents: [(notification: String, bundleID: String, pid: pid_t, role: String, title: String?, value: String?, desc: String?)] = []
+    private nonisolated(unsafe) static var flushScheduled = false
+    private static let pendingLock = NSLock()
 
     private init() {}
 
@@ -118,11 +157,32 @@ final class ProcessSymbiosis {
                     let value = symbiosisAXStringAttr(elementCopy, kAXValueAttribute)
                     let desc = symbiosisAXStringAttr(elementCopy, kAXDescriptionAttribute)
 
-                    DispatchQueue.main.async {
-                        ProcessSymbiosis.shared.handleEventPreExtracted(
-                            notification: notifStr, bundleID: bundleID, pid: pid,
-                            role: role, title: title, value: value, desc: desc
-                        )
+                    // Buffer event and coalesce — flush to main at most 4x/sec
+                    ProcessSymbiosis.pendingLock.lock()
+                    ProcessSymbiosis.pendingEvents.append((notifStr, bundleID, pid, role, title, value, desc))
+                    // Cap buffer to avoid unbounded growth
+                    if ProcessSymbiosis.pendingEvents.count > 50 {
+                        ProcessSymbiosis.pendingEvents.removeFirst(ProcessSymbiosis.pendingEvents.count - 50)
+                    }
+                    let needsSchedule = !ProcessSymbiosis.flushScheduled
+                    if needsSchedule { ProcessSymbiosis.flushScheduled = true }
+                    ProcessSymbiosis.pendingLock.unlock()
+
+                    if needsSchedule {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                            ProcessSymbiosis.pendingLock.lock()
+                            let batch = ProcessSymbiosis.pendingEvents
+                            ProcessSymbiosis.pendingEvents.removeAll()
+                            ProcessSymbiosis.flushScheduled = false
+                            ProcessSymbiosis.pendingLock.unlock()
+
+                            for ev in batch {
+                                ProcessSymbiosis.shared.handleEventPreExtracted(
+                                    notification: ev.notification, bundleID: ev.bundleID, pid: ev.pid,
+                                    role: ev.role, title: ev.title, value: ev.value, desc: ev.desc
+                                )
+                            }
+                        }
                     }
                 }
             }, &observer)
@@ -150,10 +210,15 @@ final class ProcessSymbiosis {
                 AXObserverAddNotification(obs, appElement, notif as CFString, contextPtr)
             }
 
-            // Add run loop source on main thread (CFRunLoop requires it)
+            // Add run loop source on BACKGROUND thread — never the main run loop.
+            // AX events from monitored apps fire frequently; putting them on main
+            // starves scroll-wheel, keyboard, and mouse events.
+            let bgRunLoop = axRunLoopThread.runLoop!
+            CFRunLoopAddSource(bgRunLoop, AXObserverGetRunLoopSource(obs), .defaultMode)
+            CFRunLoopWakeUp(bgRunLoop)
+
             DispatchQueue.main.async { [weak self] in
                 guard let self = self, self.isRunning else { return }
-                CFRunLoopAddSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(obs), .defaultMode)
                 self.observers[pid] = obs
                 self.observerContexts[pid] = context
                 symbLog.info("Monitoring \(bundleID) (pid \(pid)) — \(notifications.count) event types")
@@ -176,7 +241,8 @@ final class ProcessSymbiosis {
     }
 
     private func removeObserver(_ observer: AXObserver, pid: pid_t) {
-        CFRunLoopRemoveSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .defaultMode)
+        let bgRunLoop = axRunLoopThread.runLoop!
+        CFRunLoopRemoveSource(bgRunLoop, AXObserverGetRunLoopSource(observer), .defaultMode)
         observerContexts[pid] = nil
     }
 

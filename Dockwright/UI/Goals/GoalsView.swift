@@ -137,76 +137,77 @@ struct GoalsView: View {
     }
 
     private func goalRow(_ goal: Goal) -> some View {
-        VStack(alignment: .leading, spacing: DockwrightTheme.Spacing.xs) {
-            HStack(spacing: DockwrightTheme.Spacing.sm) {
-                Text(goal.category.uppercased())
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(categoryColor(goal.category))
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(categoryColor(goal.category).opacity(0.15))
-                    .clipShape(Capsule())
-
-                Text(goal.title)
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-
-                Spacer()
-
-                if let target = goal.targetDate {
-                    Text(target, style: .date)
-                        .font(DockwrightTheme.Typography.captionMono)
-                        .foregroundStyle(.tertiary)
-                }
-
-                Text("\(goal.completionPercentage)%")
-                    .font(DockwrightTheme.Typography.captionMono)
-                    .foregroundStyle(.secondary)
-
-                Button {
-                    deleteGoal(goal)
-                } label: {
-                    Image(systemName: "trash")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.tertiary)
-                }
-                .buttonStyle(.plain)
-                .help("Delete goal")
-            }
-
-            // Progress bar
-            GeometryReader { geo in
-                ZStack(alignment: .leading) {
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(Color.white.opacity(0.08))
-                        .frame(height: 4)
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(categoryColor(goal.category))
-                        .frame(width: geo.size.width * CGFloat(goal.completionPercentage) / 100.0, height: 4)
-                }
-            }
-            .frame(height: 4)
-
-            // Milestones summary
-            if !goal.milestones.isEmpty {
-                let done = goal.milestones.filter(\.isCompleted).count
-                Text("\(done)/\(goal.milestones.count) milestones completed")
-                    .font(DockwrightTheme.Typography.caption)
-                    .foregroundStyle(.quaternary)
-            }
-        }
-        .padding(.horizontal, DockwrightTheme.Spacing.md)
-        .padding(.vertical, DockwrightTheme.Spacing.sm)
-        .background(DockwrightTheme.Surface.card)
-        .clipShape(RoundedRectangle(cornerRadius: DockwrightTheme.Radius.md))
-        .contentShape(Rectangle())
-        .onTapGesture {
+        Button {
             appState.showGoals = false
             Task {
                 await appState.sendMessage("Show me the status and details of my goal \"\(goal.title)\" and suggest next steps")
             }
+        } label: {
+            VStack(alignment: .leading, spacing: DockwrightTheme.Spacing.xs) {
+                HStack(spacing: DockwrightTheme.Spacing.sm) {
+                    Text(goal.category.uppercased())
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(categoryColor(goal.category))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(categoryColor(goal.category).opacity(0.15))
+                        .clipShape(Capsule())
+
+                    Text(goal.title)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+
+                    Spacer()
+
+                    if let target = goal.targetDate {
+                        Text(target, style: .date)
+                            .font(DockwrightTheme.Typography.captionMono)
+                            .foregroundStyle(.tertiary)
+                    }
+
+                    Text("\(goal.completionPercentage)%")
+                        .font(DockwrightTheme.Typography.captionMono)
+                        .foregroundStyle(.secondary)
+
+                    Button {
+                        deleteGoal(goal)
+                    } label: {
+                        Image(systemName: "trash")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.tertiary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Delete goal")
+                }
+
+                // Progress bar
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        RoundedRectangle(cornerRadius: 2)
+                            .fill(Color.white.opacity(0.08))
+                            .frame(height: 4)
+                        RoundedRectangle(cornerRadius: 2)
+                            .fill(categoryColor(goal.category))
+                            .frame(width: geo.size.width * CGFloat(goal.completionPercentage) / 100.0, height: 4)
+                    }
+                }
+                .frame(height: 4)
+
+                // Milestones summary
+                if !goal.milestones.isEmpty {
+                    let done = goal.milestones.filter(\.isCompleted).count
+                    Text("\(done)/\(goal.milestones.count) milestones completed")
+                        .font(DockwrightTheme.Typography.caption)
+                        .foregroundStyle(.quaternary)
+                }
+            }
+            .padding(.horizontal, DockwrightTheme.Spacing.md)
+            .padding(.vertical, DockwrightTheme.Spacing.sm)
+            .background(DockwrightTheme.Surface.card)
+            .clipShape(RoundedRectangle(cornerRadius: DockwrightTheme.Radius.md))
         }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Today's Actions

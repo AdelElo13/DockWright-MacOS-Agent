@@ -199,23 +199,8 @@ struct ChatView: View {
             .padding(.horizontal, DockwrightTheme.Spacing.lg)
             .padding(.bottom, DockwrightTheme.Spacing.md)
         }
-        .background(isDragOver ? DockwrightTheme.primary.opacity(0.05) : DockwrightTheme.Surface.canvas)
-        .overlay {
-            if isDragOver {
-                dropOverlay
-            }
-        }
-        .onDrop(of: [.fileURL, .image], isTargeted: $isDragOver) { providers in
-            handleViewDrop(providers)
-        }
-        .animation(.easeInOut(duration: 0.2), value: appState.isProcessing)
-        .animation(.easeInOut(duration: 0.2), value: isDragOver)
-        .onChange(of: appState.voiceLiveText) { _, newValue in
-            // Sync voice conversation live text to the input field
-            if appState.voiceMode {
-                promptText = newValue
-            }
-        }
+        .background(DockwrightTheme.Surface.canvas)
+        // DEBUG: .onDrop, .overlay, .onChange temporarily removed to test scroll freeze
     }
 
     // MARK: - Drop Overlay

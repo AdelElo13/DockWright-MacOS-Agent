@@ -55,6 +55,9 @@ struct MemoryTool: Tool {
             do {
                 try store.saveFact(content: content, category: category)
                 return ToolResult("Saved to memory: \"\(content)\" [category: \(category)]")
+            } catch let error as MemoryError {
+                // Poison guard rejection — inform the LLM why it was blocked
+                return ToolResult("Memory save blocked: \(error.localizedDescription)", isError: true)
             } catch {
                 return ToolResult("Error saving to memory: \(error.localizedDescription)", isError: true)
             }

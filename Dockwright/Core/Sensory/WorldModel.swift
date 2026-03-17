@@ -39,6 +39,10 @@ nonisolated final class WorldModel: @unchecked Sendable {
         let s: WorldState = queue.sync { state }
         var parts: [String] = []
 
+        // User & machine context
+        parts.append("User home: \(NSHomeDirectory())")
+        parts.append("Username: \(NSUserName())")
+
         // Time awareness
         let now = Date()
         let fmt = DateFormatter()

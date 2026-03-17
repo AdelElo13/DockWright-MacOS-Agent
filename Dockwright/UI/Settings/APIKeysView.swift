@@ -370,7 +370,7 @@ struct APIKeysView: View {
         refreshStatus()
         saveStatus = "Saved!"
         AppPreferences.shared.syncModelToAvailableProvider(authManager: authManager)
-        Task.detached { await ModelRegistry.shared.refreshAll() }
+        Task { await ModelRegistry.shared.refreshAll() }
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) { saveStatus = "" }
     }
 

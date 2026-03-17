@@ -6,7 +6,7 @@ import os
 nonisolated struct ProjectContextTool: Tool, @unchecked Sendable {
     let name = "project_context"
     let description = """
-        Git and project structure operations. Actions:
+        Git and project structure operations. IMPORTANT: Use the home directory from the system context for paths — never guess usernames or paths. Actions:
         - git_status: Show git status for a directory
         - git_log: Show recent commits (count param, default 10)
         - git_diff: Show diff (staged param: true for staged, false for unstaged, default unstaged)

@@ -127,7 +127,10 @@ struct ShellTool: Tool, Sendable {
                     result += "\n\nSTDERR:\n\(truncatedStderr)"
                 }
 
-                continuation.resume(returning: ToolResult(result, isError: exitCode != 0))
+                // Only mark as error if exit code != 0 AND there's stderr output.
+                // Many tools (grep, diff, test) use exit code 1 for "no match" — not a real error.
+                let hasStderr = !truncatedStderr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                continuation.resume(returning: ToolResult(result, isError: exitCode != 0 && hasStderr))
             }
         }
     }

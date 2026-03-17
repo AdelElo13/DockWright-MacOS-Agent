@@ -9,19 +9,21 @@ struct SchedulerView: View {
     @State private var isCreatingNew = false
 
     var body: some View {
-        VStack(spacing: 0) {
-            header
-            Divider().opacity(0.2)
-            if jobs.isEmpty {
-                emptyState
-            } else {
-                jobList
+        ZStack {
+            VStack(spacing: 0) {
+                header
+                Divider().opacity(0.2)
+                if jobs.isEmpty {
+                    emptyState
+                } else {
+                    jobList
+                }
             }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(DockwrightTheme.Surface.canvas)
-        .onAppear { refreshJobs() }
-        .overlay {
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(DockwrightTheme.Surface.canvas)
+            .onAppear { refreshJobs() }
+
+            // Job editor — in ZStack (not .overlay{}) to avoid blocking scroll
             if isCreatingNew || editingJob != nil {
                 Color.black.opacity(0.4)
                     .ignoresSafeArea()
@@ -54,8 +56,7 @@ struct SchedulerView: View {
                 .shadow(color: .black.opacity(0.5), radius: 20)
             }
         }
-        .animation(.easeInOut(duration: 0.2), value: isCreatingNew)
-        .animation(.easeInOut(duration: 0.2), value: editingJob?.id)
+        // Removed implicit .animation() — blocks ScrollView scroll events on macOS
     }
 
     // MARK: - Header

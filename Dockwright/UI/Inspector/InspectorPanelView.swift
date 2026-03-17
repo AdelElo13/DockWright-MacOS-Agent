@@ -201,57 +201,58 @@ private struct EventRowView: View {
     @State private var isExpanded = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: 6) {
-                Image(systemName: event.iconName)
-                    .font(.system(size: 11))
-                    .foregroundStyle(iconColor)
-                    .frame(width: 16)
+        Button {
+            withAnimation(.easeInOut(duration: 0.15)) {
+                isExpanded.toggle()
+            }
+        } label: {
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Image(systemName: event.iconName)
+                        .font(.system(size: 11))
+                        .foregroundStyle(iconColor)
+                        .frame(width: 16)
 
-                VStack(alignment: .leading, spacing: 1) {
-                    HStack(spacing: 4) {
-                        if let toolName = event.toolName {
-                            Text(toolName)
-                                .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                                .foregroundStyle(iconColor)
-                        } else {
-                            Text(event.label)
-                                .font(.system(size: 11, weight: .medium))
-                                .foregroundStyle(.primary)
-                        }
+                    VStack(alignment: .leading, spacing: 1) {
+                        HStack(spacing: 4) {
+                            if let toolName = event.toolName {
+                                Text(toolName)
+                                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                                    .foregroundStyle(iconColor)
+                            } else {
+                                Text(event.label)
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundStyle(.primary)
+                            }
 
-                        if let ms = event.durationMs {
-                            Text("\(ms)ms")
-                                .font(.system(size: 9, weight: .medium, design: .monospaced))
+                            if let ms = event.durationMs {
+                                Text("\(ms)ms")
+                                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                                    .foregroundStyle(.tertiary)
+                            }
+
+                            Spacer()
+
+                            Text(event.timeString)
+                                .font(.system(size: 9, design: .monospaced))
                                 .foregroundStyle(.tertiary)
                         }
 
-                        Spacer()
-
-                        Text(event.timeString)
-                            .font(.system(size: 9, design: .monospaced))
-                            .foregroundStyle(.tertiary)
+                        Text(event.detail)
+                            .font(.system(size: 10))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(isExpanded ? nil : 2)
                     }
-
-                    Text(event.detail)
-                        .font(.system(size: 10))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(isExpanded ? nil : 2)
                 }
             }
-            .contentShape(Rectangle())
-            .onTapGesture {
-                withAnimation(.easeInOut(duration: 0.15)) {
-                    isExpanded.toggle()
-                }
-            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background(
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(event.isError ? Color.red.opacity(0.06) : Color.clear)
+            )
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 5)
-        .background(
-            RoundedRectangle(cornerRadius: 6)
-                .fill(event.isError ? Color.red.opacity(0.06) : Color.clear)
-        )
+        .buttonStyle(.plain)
     }
 
     private var iconColor: Color {

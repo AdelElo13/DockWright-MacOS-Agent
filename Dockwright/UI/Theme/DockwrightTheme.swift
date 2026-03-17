@@ -268,7 +268,7 @@ struct ShimmerModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .overlay {
+            .overlay(Group {
                 if isActive {
                     RoundedRectangle(cornerRadius: 10)
                         .fill(
@@ -286,7 +286,7 @@ struct ShimmerModifier: ViewModifier {
                             }
                         }
                 }
-            }
+            }.allowsHitTesting(false))
     }
 }
 
