@@ -1,74 +1,89 @@
-# Dockwright
+<p align="center">
+  <img src="Dockwright/Assets.xcassets/AppIcon.appiconset/icon_256x256@2x.png" width="128" height="128" alt="Dockwright icon">
+</p>
 
-**A native macOS agent that sees, acts, and remembers.**
+<h1 align="center">Dockwright</h1>
 
-Dockwright is a fully native Swift macOS AI assistant that combines the best of OpenClaw's reliability, Manus's autonomy, and Jarvis's sensory awareness — all in one local-first app.
+<p align="center">
+  <strong>Your Mac. Your AI. No cloud required.</strong>
+</p>
+
+<p align="center">
+  A native macOS AI assistant that sees your screen, hears your voice,<br>
+  runs your tools, and remembers what matters — built entirely in Swift.
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/platform-macOS%2014%2B-000000?style=flat-square&logo=apple&logoColor=white" alt="macOS 14+">
+  <img src="https://img.shields.io/badge/Swift-6-F05138?style=flat-square&logo=swift&logoColor=white" alt="Swift 6">
+  <img src="https://img.shields.io/badge/lines-26K-0891B2?style=flat-square" alt="26K lines">
+  <img src="https://img.shields.io/badge/license-private-lightgrey?style=flat-square" alt="Private">
+</p>
 
 ---
 
-## Features
+## What is Dockwright?
 
-### Core
-- **Streaming LLM chat** — Claude, GPT-4o, Ollama (local models)
-- **OAuth sign-in** — One-click Claude & OpenAI auth (PKCE), or paste API key
-- **Tool calling** — Shell, files, web search, clipboard, system control
-- **Conversation threads** — Full history with SQLite + FTS5 search
+Dockwright is a fully native macOS assistant — not a wrapper around a web app. It connects directly to Claude, GPT-4o, Gemini, Grok, or local models via Ollama, and gives them real access to your system: files, shell, screen, browser, calendar, contacts, reminders, and more.
 
-### Scheduling & Reminders
-- **Cron engine** — Full 5-field cron expressions with timezone support
-- **Natural language reminders** — "Remind me in 2 minutes to drink water"
-- **macOS notifications** — Native delivery via UNUserNotificationCenter
-- **Restart catch-up** — Missed jobs execute on next launch
-- **Heartbeat** — 30-minute health checks with smart deduplication
+It doesn't just chat. It acts.
 
-### Sensory Awareness
-- **Screen capture + OCR** — 15-second ambient loop with change detection
-- **Browser tab watching** — Safari, Chrome, Firefox, Edge, Arc, Brave
-- **Active document detection** — Knows which file you're editing in Xcode/VS Code
-- **World model** — Unified sensory context injected into every LLM call
+---
+
+## Capabilities
+
+### Conversation
+- Streaming responses with full Markdown rendering
+- Multi-provider support — Claude, GPT-4o, Gemini, Grok, Ollama
+- OAuth sign-in (Claude, OpenAI) or API key
+- Conversation history with full-text search
+- Image analysis — drag, paste, or screenshot
+
+### Tools
+Shell commands, file operations, web search, clipboard, system info, Apple Reminders, Apple Notes, Contacts — 28 tools the AI can call autonomously.
 
 ### Voice
-- **Speech-to-text** — Apple SFSpeechRecognizer with silence detection
-- **Text-to-speech** — System TTS with streaming sentence boundaries
-- **Wake word** — "Hey Dockwright" via SFSpeechRecognizer
-- **Hands-free mode** — Continuous listen → transcribe → respond → speak loop
+Hands-free operation with Apple Speech Recognition. Say "Hey Dockwright" to wake, speak naturally, get a spoken response. Silence detection, continuous mode, and session coordination to prevent audio conflicts.
+
+### Screen Awareness
+A 15-second ambient loop captures your screen, runs OCR, and feeds context to the AI. It knows which app is active, what you're reading, and which browser tabs are open — across Safari, Chrome, Firefox, Edge, Arc, and Brave.
+
+### Scheduling
+Full cron engine with natural language. "Remind me in 2 minutes to stretch" just works. Recurring jobs, one-shot reminders, missed-job catch-up on relaunch, and native macOS notifications.
 
 ### Agent Mode
-- **Autonomous execution** — Give a goal, Dockwright plans and executes steps
-- **Self-correction** — Failed steps are analyzed and retried differently
-- **Progress reporting** — Step-by-step UI updates
-- **20-step safety limit** — Cancellable at any point
+Give Dockwright a goal and it will plan, execute, self-correct, and report progress — up to 20 steps with full cancellation support.
 
-### Apple Integration
-- **Apple Reminders** — Create, complete, list, delete via EventKit
-- **Apple Notes** — Create, search, read via AppleScript
-- **Menu bar** — Quick access from anywhere
-- **Global hotkey** — Cmd+Shift+Space to summon
-
-### Vision & Files
-- **Image analysis** — Drag & drop or paste screenshots (Claude Vision API)
-- **File drop** — Drop code files into chat for instant analysis
-- **Clipboard intelligence** — Auto-detect code, URLs, file paths
-- **Export** — Save conversations as Markdown or PDF
+### Memory
+Auto-extracts facts from conversations. Remembers tool failures and adapts — never bans a tool, just learns to call it smarter. SQLite + FTS5 backed.
 
 ### Skills
-- **Markdown-based** — Drop a `.md` file in `~/.dockwright/skills/` to teach Dockwright new abilities
-- **Built-in skills** — Code review, git workflow, system diagnostics, file organizer
-- **No code required** — Skills are natural language instructions, not plugins
+Drop a Markdown file in `~/.dockwright/skills/` and Dockwright learns new abilities. No code required.
+
+### Integrations
+- Telegram bot — chat with Dockwright from your phone
+- A2A server — agent-to-agent protocol on port 8766
+- Siri Shortcuts — 9 intents for Spotlight and Siri
+- Menu bar — always one click away
+- Global hotkey — Cmd+Shift+Space
 
 ---
 
-## Quick Start
+## Getting Started
 
-1. Open `Dockwright.xcodeproj` in Xcode
-2. Cmd+R to build and run
-3. Sign in with Claude (OAuth) or paste an API key
-4. Start chatting — try "What's running on my system?" or "Remind me in 1 minute to stretch"
+1. Open **Dockwright.xcodeproj** in Xcode 16+
+2. **Cmd+R** to build and run
+3. Sign in with Claude or paste an API key
+4. Start with: *"What's on my screen?"* or *"Remind me in 1 minute to stretch"*
 
 ### Requirements
-- macOS 14.0+
-- Xcode 16+
-- An Anthropic, OpenAI, or Ollama API key (or use OAuth)
+
+| | |
+|---|---|
+| **OS** | macOS 14.0 Sonoma or later |
+| **Xcode** | 16.0 or later |
+| **AI Provider** | Anthropic, OpenAI, Google, xAI, or Ollama |
+| **Dependencies** | None — pure Apple frameworks |
 
 ---
 
@@ -76,40 +91,29 @@ Dockwright is a fully native Swift macOS AI assistant that combines the best of 
 
 ```
 Dockwright/
-├── App/           — Entry point, global state
+├── App/           Entry point, global state, permissions
 ├── Core/
-│   ├── Agent/     — Autonomous multi-step execution
-│   ├── Channels/  — Notification delivery
-│   ├── Heartbeat/ — Proactive health checks
-│   ├── LLM/       — Multi-provider streaming (Anthropic, OpenAI, Ollama)
-│   ├── Memory/    — SQLite + FTS5 conversations & facts
-│   ├── Scheduler/ — Cron engine, reminders, atomic JSON store
-│   ├── Sensory/   — Screen capture, OCR, browser tabs, world model
-│   ├── Skills/    — Markdown skill loader
-│   ├── Tools/     — 12 tools (shell, file, web, vision, clipboard, system, ...)
-│   └── Voice/     — STT, TTS, wake word, session coordinator
-├── UI/            — SwiftUI views (chat, sidebar, settings, scheduler)
-└── Utilities/     — Keychain, SQLite, OAuth, logging
+│   ├── Agent/     Autonomous multi-step execution
+│   ├── Channels/  Notification delivery
+│   ├── Heartbeat/ Proactive health checks
+│   ├── LLM/       Multi-provider streaming
+│   ├── Memory/    SQLite + FTS5, auto-formation, error memory
+│   ├── Scheduler/ Cron engine, reminders
+│   ├── Sensory/   Screen capture, OCR, browser tabs, world model
+│   ├── Skills/    Markdown skill loader
+│   ├── Tools/     28 tools
+│   └── Voice/     STT, TTS, wake word
+├── UI/            SwiftUI (chat, sidebar, settings, onboarding)
+└── Utilities/     Keychain, SQLite, OAuth, logging
 ```
 
-**54 Swift files** · **11,800+ lines** · **Zero warnings**
+**88 Swift files** · **26,000 lines** · **Zero external dependencies**
 
 ---
 
-## What Makes Dockwright Different
+## Privacy
 
-| | Dockwright | OpenClaw | Manus | Open Interpreter |
-|---|---|---|---|---|
-| Native macOS | ✅ Swift | ❌ TypeScript | ❌ Cloud | ❌ Python |
-| Runs locally | ✅ | ✅ | ❌ | ✅ |
-| Screen awareness | ✅ | ❌ | ❌ | Partial |
-| Voice | ✅ | ✅ | ❌ | ❌ |
-| Cron scheduling | ✅ | ✅ | ❌ | ❌ |
-| Agent mode | ✅ | ❌ | ✅ | ❌ |
-| Apple Reminders | ✅ | ✅ | ❌ | ❌ |
-| OAuth (no API key needed) | ✅ | ❌ | N/A | ❌ |
-| Image analysis | ✅ | ❌ | ✅ | ✅ |
-| File watching | ✅ | ❌ | ❌ | ❌ |
+Dockwright runs locally on your Mac. Screen captures, voice recordings, and memory stay on disk in `~/.dockwright/`. API calls go directly to your chosen provider — nothing passes through third-party servers.
 
 ---
 
