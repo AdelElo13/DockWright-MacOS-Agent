@@ -38,8 +38,7 @@ struct APIKeysView: View {
     @State private var hasBraveSearch = false
 
     var body: some View {
-        ScrollView {
-            Form {
+        Form {
                 // Claude / Anthropic Section
                 Section {
                     HStack {
@@ -302,7 +301,6 @@ struct APIKeysView: View {
                 }
             }
             .formStyle(.grouped)
-        }
         .onAppear { refreshStatus() }
         .onChange(of: authManager.isClaudeSignedIn) { _, signedIn in
             if signedIn {

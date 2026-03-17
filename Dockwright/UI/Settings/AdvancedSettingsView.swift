@@ -9,8 +9,7 @@ struct AdvancedSettingsView: View {
     @State private var cacheCleared = false
 
     var body: some View {
-        ScrollView {
-            Form {
+        Form {
                 Section("Model Parameters") {
                     VStack(alignment: .leading) {
                         HStack {
@@ -129,7 +128,6 @@ struct AdvancedSettingsView: View {
                 }
             }
             .formStyle(.grouped)
-        }
     }
 
     private func exportLogs() {

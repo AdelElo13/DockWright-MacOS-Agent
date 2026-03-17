@@ -77,8 +77,7 @@ struct SidebarView: View {
                 }
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
-                .background(DockwrightTheme.Surface.card)
-                .clipShape(RoundedRectangle(cornerRadius: DockwrightTheme.Radius.sm))
+                .background(RoundedRectangle(cornerRadius: DockwrightTheme.Radius.sm).fill(DockwrightTheme.Surface.card))
                 .padding(.horizontal, DockwrightTheme.Spacing.md)
                 .padding(.bottom, DockwrightTheme.Spacing.xs)
                 .transition(.opacity.combined(with: .move(edge: .top)))
@@ -284,6 +283,7 @@ struct SidebarView: View {
             .padding(.vertical, DockwrightTheme.Spacing.sm)
         }
         .buttonStyle(.plain)
+        .contentShape(Rectangle())
         .padding(.horizontal, DockwrightTheme.Spacing.sm)
     }
 

@@ -93,8 +93,10 @@ struct MessageInput: View {
             .padding(.horizontal, DockwrightTheme.Spacing.md)
             .padding(.vertical, DockwrightTheme.Spacing.sm)
         }
-        .background(isDragOver ? DockwrightTheme.primary.opacity(0.1) : DockwrightTheme.Surface.card)
-        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(isDragOver ? DockwrightTheme.primary.opacity(0.1) : DockwrightTheme.Surface.card)
+        )
         .overlay(
             RoundedRectangle(cornerRadius: 16)
                 .stroke(
@@ -107,6 +109,7 @@ struct MessageInput: View {
                                 : Color.primary.opacity(DockwrightTheme.Opacity.borderSubtle),
                     lineWidth: isDragOver ? 2 : (voiceMode && voiceState == .listening ? 2 : 1)
                 )
+                .allowsHitTesting(false)
         )
         .shadow(color: .black.opacity(DockwrightTheme.Opacity.shadow), radius: 8, y: 2)
         .animation(.easeInOut(duration: 0.15), value: isFocused)
@@ -251,7 +254,8 @@ struct MessageInput: View {
                 .background(attachHovered ? Color.primary.opacity(0.08) : Color.clear)
                 .clipShape(Circle())
         }
-        .menuStyle(.borderlessButton)
+        .menuStyle(.button)
+        .buttonStyle(.plain)
         .menuIndicator(.hidden)
         .frame(width: DockwrightTheme.Layout.inputButtonSize)
         .help("Attach files, take photo, or screenshot")
@@ -388,6 +392,7 @@ struct MessageInput: View {
                     .foregroundStyle(.secondary)
                     .padding(.leading, DockwrightTheme.Spacing.sm)
                     .padding(.top, DockwrightTheme.Spacing.sm)
+                    .allowsHitTesting(false) // Let taps pass through to TextEditor
             }
 
             TextEditor(text: $text)

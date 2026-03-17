@@ -33,10 +33,6 @@ struct DockwrightApp: App {
         .windowStyle(.titleBar)
         .defaultSize(width: 1000, height: 700)
 
-        Settings {
-            SettingsView(appState: appState)
-        }
-
         // Menu bar icon — respect showMenuBarExtra preference
         MenuBarExtra("Dockwright", systemImage: "circle.hexagongrid.circle", isInserted: menuBarInserted) {
             menuBarContent
@@ -131,20 +127,19 @@ struct DockwrightApp: App {
 
     // MARK: - Main View
 
-    /// Dismiss all overlay panels (settings, skills, scheduler).
+    /// Dismiss all overlay panels (skills, scheduler, goals).
     private func dismissAllOverlays() {
-        withAnimation(.easeOut(duration: 0.2)) {
-            appState.showSettings = false
-            appState.showSkillsAutomations = false
-            appState.showScheduler = false
-            appState.showGoals = false
-            // Note: Inspector is a side panel, not an overlay — don't dismiss it here
-        }
+        // No withAnimation — animation keeps the scrim's .onTapGesture in the hit-test tree,
+        // which blocks sidebar button events after overlay dismissal.
+        appState.showSkillsAutomations = false
+        appState.showScheduler = false
+        appState.showGoals = false
     }
+
 
     /// Whether any overlay panel is visible.
     private var hasOverlay: Bool {
-        appState.showSettings || appState.showSkillsAutomations || appState.showScheduler || appState.showGoals
+        appState.showSkillsAutomations || appState.showScheduler || appState.showGoals
     }
 
     private var mainView: some View {
@@ -252,7 +247,8 @@ struct DockwrightApp: App {
                             .foregroundStyle(.secondary)
                             .fixedSize()
                         }
-                        .menuStyle(.borderlessButton)
+                        .menuStyle(.button)
+                        .buttonStyle(.plain)
                         .fixedSize()
 
                         if prefs.showTokenCost {
@@ -272,39 +268,43 @@ struct DockwrightApp: App {
         .overlay {
             if hasOverlay {
                 Color.black.opacity(0.35)
-                    .ignoresSafeArea()
+                    .ignoresSafeArea(.container, edges: [.horizontal, .bottom])
                     .onTapGesture { dismissAllOverlays() }
-
-                if appState.showSettings {
-                    SettingsView(appState: appState)
-                        .frame(width: 780, height: 600)
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
-                        .shadow(color: .black.opacity(0.5), radius: 20)
-                }
 
                 if appState.showSkillsAutomations {
                     SkillsAutomationsView(appState: appState)
                         .frame(width: 780, height: 600)
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .contentShape(Rectangle())
+                        .background(RoundedRectangle(cornerRadius: 12).fill(DockwrightTheme.Surface.canvas))
+                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.08), lineWidth: 0.5).allowsHitTesting(false))
                         .shadow(color: .black.opacity(0.5), radius: 20)
                 }
 
                 if appState.showScheduler {
                     SchedulerView(store: appState.cronStore, appState: appState)
                         .frame(width: 780, height: 500)
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .contentShape(Rectangle())
+                        .background(RoundedRectangle(cornerRadius: 12).fill(DockwrightTheme.Surface.canvas))
+                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.08), lineWidth: 0.5).allowsHitTesting(false))
                         .shadow(color: .black.opacity(0.5), radius: 20)
                 }
 
                 if appState.showGoals {
                     GoalsView(appState: appState)
                         .frame(width: 780, height: 600)
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .contentShape(Rectangle())
+                        .background(RoundedRectangle(cornerRadius: 12).fill(DockwrightTheme.Surface.canvas))
+                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.08), lineWidth: 0.5).allowsHitTesting(false))
                         .shadow(color: .black.opacity(0.5), radius: 20)
                 }
             }
         }
-        .animation(.easeInOut(duration: 0.2), value: hasOverlay)
+        // Settings as a native macOS sheet — no custom overlay/scrim.
+        // Sheet creates its own window, so Form controls work natively.
+        .sheet(isPresented: $appState.showSettings) {
+            SettingsView(appState: appState)
+                .frame(width: 780, height: 600)
+        }
         .alert("Approve Action?", isPresented: $appState.showToolApproval) {
             Button("Allow", role: .destructive) {
                 appState.toolApprovalContinuation?.resume(returning: true)

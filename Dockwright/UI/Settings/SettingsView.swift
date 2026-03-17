@@ -32,9 +32,8 @@ private enum SettingsTab: String, CaseIterable, Identifiable {
 
 /// Sidebar-based settings panel (matches Jarvis style).
 struct SettingsView: View {
-    @Environment(\.dismiss) private var dismiss
     var appState: AppState?
-    @State private var selectedTab: SettingsTab = .general
+    @State private var selectedTab: SettingsTab? = .general
 
     var body: some View {
         VStack(spacing: 0) {
@@ -44,7 +43,7 @@ struct SettingsView: View {
                     .font(DockwrightTheme.Typography.heading)
                 Spacer()
                 Button {
-                    if let appState { appState.showSettings = false } else { dismiss() }
+                    appState?.showSettings = false
                 } label: {
                     Text("Done")
                         .font(.system(size: 13, weight: .semibold))
@@ -65,7 +64,7 @@ struct SettingsView: View {
             // Sidebar + Content
             HStack(spacing: 0) {
                 // Sidebar navigation
-                List {
+                List(selection: $selectedTab) {
                     Section("General") {
                         settingsTabRow(.general)
                         settingsTabRow(.apiKeys)
@@ -90,57 +89,44 @@ struct SettingsView: View {
 
                 Divider().opacity(0.15)
 
-                // Content area
-                ScrollView {
-                    Group {
-                        switch selectedTab {
-                        case .general: GeneralSettingsView()
-                        case .apiKeys:
-                            if let mgr = appState?.authManager {
-                                APIKeysView(authManager: mgr)
-                            } else {
-                                Text("Settings unavailable — reopen from main window.")
-                                    .foregroundStyle(.secondary)
-                                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            }
-                        case .models: ModelSettingsView()
-                        case .voice: VoiceSettingsView()
-                        case .agent: AgentSettingsView()
-                        case .notifications: NotificationSettingsView()
-                        case .privacy: PrivacySettingsView(appState: appState)
-                        case .advanced: AdvancedSettingsView()
-                        case .about: aboutView
+                // Content area — each tab view owns its own scrolling via Form(.grouped)
+                Group {
+                    switch selectedTab ?? .general {
+                    case .general: GeneralSettingsView()
+                    case .apiKeys:
+                        if let mgr = appState?.authManager {
+                            APIKeysView(authManager: mgr)
+                        } else {
+                            Text("Settings unavailable — reopen from main window.")
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
                         }
+                    case .models: ModelSettingsView()
+                    case .voice: VoiceSettingsView()
+                    case .agent: AgentSettingsView()
+                    case .notifications: NotificationSettingsView()
+                    case .privacy: PrivacySettingsView(appState: appState)
+                    case .advanced: AdvancedSettingsView()
+                    case .about: aboutView
                     }
-                    .padding(DockwrightTheme.Spacing.lg)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .frame(width: 780, height: 600)
-        .background(DockwrightTheme.Surface.canvas)
-        .clipShape(RoundedRectangle(cornerRadius: DockwrightTheme.Radius.card))
+        .background(RoundedRectangle(cornerRadius: DockwrightTheme.Radius.card).fill(DockwrightTheme.Surface.canvas))
         .overlay(
             RoundedRectangle(cornerRadius: DockwrightTheme.Radius.card)
                 .stroke(Color.white.opacity(0.08), lineWidth: 0.5)
+                .allowsHitTesting(false)
         )
         .shadow(color: .black.opacity(0.4), radius: 20, y: 8)
     }
 
     private func settingsTabRow(_ tab: SettingsTab) -> some View {
-        Button {
-            selectedTab = tab
-        } label: {
-            Label(tab.rawValue, systemImage: tab.icon)
-                .font(DockwrightTheme.Typography.body)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .listRowBackground(
-            selectedTab == tab
-                ? Color.white.opacity(0.10)
-                : Color.clear
-        )
+        Label(tab.rawValue, systemImage: tab.icon)
+            .font(DockwrightTheme.Typography.body)
+            .tag(tab)
     }
 
     private var aboutView: some View {
@@ -185,9 +171,8 @@ struct ModelSettingsView: View {
     ]
 
     var body: some View {
-        ScrollView {
-            Form {
-                Section("Default Model") {
+        Form {
+            Section("Default Model") {
                     Picker("Model", selection: Binding(
                         get: { prefs.selectedModel },
                         set: { prefs.selectedModel = $0 }
@@ -281,7 +266,6 @@ struct ModelSettingsView: View {
                 }
             }
             .formStyle(.grouped)
-        }
         .onAppear { loadModels() }
     }
 
