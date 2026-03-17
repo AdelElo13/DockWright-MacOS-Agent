@@ -148,15 +148,16 @@ struct DockwrightApp: App {
 
     private var mainView: some View {
         ZStack {
-            // Base content
-            HSplitView {
+            // Base content — use HStack instead of HSplitView to avoid macOS hit-testing bugs
+            HStack(spacing: 0) {
                 if appState.showSidebar {
                     SidebarView(appState: appState, showSettings: $appState.showSettings)
                         .frame(width: DockwrightTheme.Layout.sidebarWidth)
+                    Divider()
                 }
 
                 ChatView(appState: appState)
-                    .frame(minWidth: 400)
+                    .frame(minWidth: 400, maxWidth: .infinity)
             }
             .toolbar {
                 ToolbarItem(placement: .navigation) {

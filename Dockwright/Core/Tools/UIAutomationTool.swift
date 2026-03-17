@@ -1,0 +1,308 @@
+import Foundation
+import AppKit
+import os
+
+nonisolated private let uiLog = Logger(subsystem: "com.Aatje.Dockwright", category: "UIAutomationTool")
+
+/// LLM tool for direct UI automation — click buttons, type text, read UI elements, press keys.
+/// Uses macOS Accessibility API (AXUIElement) for reliable, semantic-level control of ANY app.
+nonisolated struct UIAutomationTool: Tool, @unchecked Sendable {
+    let name = "ui_automation"
+    let description = """
+    Control any macOS app's UI directly: click buttons, type text, read elements, press keyboard shortcuts. \
+    Much more reliable than AppleScript — works with every app that supports Accessibility.
+    """
+
+    nonisolated(unsafe) let parametersSchema: [String: Any] = [
+        "action": [
+            "type": "string",
+            "description": "One of: list_elements, find_element, click, click_at, type_text, set_value, press_key, focused_app, read_focused",
+        ] as [String: Any],
+        "role": [
+            "type": "string",
+            "description": "AX role to search for (e.g. AXButton, AXTextField, AXMenuItem, AXLink, AXCheckBox)",
+            "optional": true,
+        ] as [String: Any],
+        "title": [
+            "type": "string",
+            "description": "Element title/label to find (partial match, case-insensitive)",
+            "optional": true,
+        ] as [String: Any],
+        "text": [
+            "type": "string",
+            "description": "Text to type or set as value",
+            "optional": true,
+        ] as [String: Any],
+        "key": [
+            "type": "string",
+            "description": "Key to press (e.g. 'return', 'tab', 'escape', 'a', 'space'). For shortcuts use modifiers param.",
+            "optional": true,
+        ] as [String: Any],
+        "modifiers": [
+            "type": "string",
+            "description": "Comma-separated modifier keys: cmd, shift, alt, ctrl (e.g. 'cmd,shift')",
+            "optional": true,
+        ] as [String: Any],
+        "x": [
+            "type": "number",
+            "description": "X screen coordinate for click_at",
+            "optional": true,
+        ] as [String: Any],
+        "y": [
+            "type": "number",
+            "description": "Y screen coordinate for click_at",
+            "optional": true,
+        ] as [String: Any],
+        "app": [
+            "type": "string",
+            "description": "Bundle ID of target app (optional, defaults to frontmost app)",
+            "optional": true,
+        ] as [String: Any],
+        "meaning": [
+            "type": "string",
+            "description": "Semantic description of element to find (e.g. 'save button', 'email field'). Uses ProcessSymbiosis live model.",
+            "optional": true,
+        ] as [String: Any],
+    ]
+
+    let requiredParams: [String] = ["action"]
+
+    func execute(arguments: [String: Any]) async throws -> ToolResult {
+        guard let action = arguments["action"] as? String else {
+            return ToolResult("Missing 'action'. Use: list_elements, find_element, click, click_at, type_text, set_value, press_key, focused_app, read_focused", isError: true)
+        }
+
+        let ax = AccessibilityController.shared
+
+        // Check permission first
+        let hasPermission = await ax.checkPermission()
+        if !hasPermission && action != "focused_app" {
+            await ax.requestPermission()
+            return ToolResult("Accessibility permission required. A system dialog should appear — grant access to Dockwright, then try again.", isError: true)
+        }
+
+        switch action {
+        case "list_elements":
+            return await listElements(ax: ax, arguments: arguments)
+        case "find_element":
+            return await findElement(ax: ax, arguments: arguments)
+        case "click":
+            return await clickElement(ax: ax, arguments: arguments)
+        case "click_at":
+            return await clickAtPosition(ax: ax, arguments: arguments)
+        case "type_text":
+            return await typeText(ax: ax, arguments: arguments)
+        case "set_value":
+            return await setValue(ax: ax, arguments: arguments)
+        case "press_key":
+            return await pressKey(ax: ax, arguments: arguments)
+        case "focused_app":
+            return await focusedApp()
+        case "read_focused":
+            return await readFocused(ax: ax)
+        default:
+            return ToolResult("Unknown action '\(action)'.", isError: true)
+        }
+    }
+
+    // MARK: - Actions
+
+    private func listElements(ax: AccessibilityController, arguments: [String: Any]) async -> ToolResult {
+        do {
+            let elements = try await ax.listElements(inWindow: true, maxDepth: 4)
+            if elements.isEmpty { return ToolResult("No UI elements found in focused window.") }
+
+            // Filter to actionable elements only (skip containers/groups)
+            let actionable = elements.filter { el in
+                guard let role = el.role else { return false }
+                return ["AXButton", "AXTextField", "AXTextArea", "AXCheckBox", "AXRadioButton",
+                        "AXPopUpButton", "AXComboBox", "AXMenuItem", "AXLink", "AXSlider",
+                        "AXTabGroup", "AXTab", "AXSecureTextField", "AXStaticText"].contains(role)
+            }
+
+            var result = "Found \(actionable.count) actionable elements (of \(elements.count) total):\n\n"
+            for (i, el) in actionable.prefix(40).enumerated() {
+                result += "\(i + 1). \(el.descriptionText)\n"
+            }
+            if actionable.count > 40 {
+                result += "... and \(actionable.count - 40) more. Use find_element to narrow down."
+            }
+            return ToolResult(result)
+        } catch {
+            return ToolResult("Error listing elements: \(error.localizedDescription)", isError: true)
+        }
+    }
+
+    private func findElement(ax: AccessibilityController, arguments: [String: Any]) async -> ToolResult {
+        // Try semantic search first (ProcessSymbiosis)
+        if let meaning = arguments["meaning"] as? String, !meaning.isEmpty {
+            if let app = NSWorkspace.shared.frontmostApplication?.bundleIdentifier {
+                if let found = await ProcessSymbiosis.shared.findElement(inApp: app, meaning: meaning) {
+                    return ToolResult("Found: \(found.descriptionText)")
+                }
+            }
+        }
+
+        // Fall back to role+title search
+        guard let role = arguments["role"] as? String else {
+            return ToolResult("Provide either 'meaning' or 'role'+'title' to find an element.", isError: true)
+        }
+        let title = arguments["title"] as? String ?? ""
+        let bundleID = arguments["app"] as? String
+
+        do {
+            let element = try await ax.findElement(role: role, title: title, inApp: bundleID)
+            return ToolResult("Found: \(element.descriptionText)")
+        } catch {
+            return ToolResult("Not found: \(error.localizedDescription)", isError: true)
+        }
+    }
+
+    private func clickElement(ax: AccessibilityController, arguments: [String: Any]) async -> ToolResult {
+        // Find by meaning, role+title, or use ProcessSymbiosis
+        let element: UIElementInfo
+        do {
+            if let meaning = arguments["meaning"] as? String, !meaning.isEmpty,
+               let app = NSWorkspace.shared.frontmostApplication?.bundleIdentifier,
+               let found = await ProcessSymbiosis.shared.findElement(inApp: app, meaning: meaning) {
+                element = found
+            } else if let role = arguments["role"] as? String {
+                let title = arguments["title"] as? String ?? ""
+                element = try await ax.findElement(role: role, title: title, inApp: arguments["app"] as? String)
+            } else {
+                return ToolResult("Provide 'meaning' or 'role'+'title' to identify the element to click.", isError: true)
+            }
+        } catch {
+            return ToolResult("Cannot find element to click: \(error.localizedDescription)", isError: true)
+        }
+
+        do {
+            try await ax.click(element: element.element)
+            let desc = element.title ?? element.label ?? element.role ?? "element"
+            return ToolResult("Clicked: \(desc)")
+        } catch {
+            return ToolResult("Click failed: \(error.localizedDescription)", isError: true)
+        }
+    }
+
+    private func clickAtPosition(ax: AccessibilityController, arguments: [String: Any]) async -> ToolResult {
+        guard let x = arguments["x"] as? Double, let y = arguments["y"] as? Double else {
+            return ToolResult("Missing 'x' and 'y' coordinates.", isError: true)
+        }
+        do {
+            try await ax.clickAt(x: CGFloat(x), y: CGFloat(y))
+            return ToolResult("Clicked at (\(Int(x)), \(Int(y)))")
+        } catch {
+            return ToolResult("Click failed: \(error.localizedDescription)", isError: true)
+        }
+    }
+
+    private func typeText(ax: AccessibilityController, arguments: [String: Any]) async -> ToolResult {
+        guard let text = arguments["text"] as? String, !text.isEmpty else {
+            return ToolResult("Missing 'text' to type.", isError: true)
+        }
+        do {
+            try await ax.typeText(text)
+            return ToolResult("Typed \(text.count) characters")
+        } catch {
+            return ToolResult("Type failed: \(error.localizedDescription)", isError: true)
+        }
+    }
+
+    private func setValue(ax: AccessibilityController, arguments: [String: Any]) async -> ToolResult {
+        guard let text = arguments["text"] as? String else {
+            return ToolResult("Missing 'text' value to set.", isError: true)
+        }
+
+        let element: UIElementInfo
+        do {
+            if let role = arguments["role"] as? String {
+                let title = arguments["title"] as? String ?? ""
+                element = try await ax.findElement(role: role, title: title, inApp: arguments["app"] as? String)
+            } else if let meaning = arguments["meaning"] as? String, !meaning.isEmpty,
+                      let app = NSWorkspace.shared.frontmostApplication?.bundleIdentifier,
+                      let found = await ProcessSymbiosis.shared.findElement(inApp: app, meaning: meaning) {
+                element = found
+            } else {
+                return ToolResult("Provide 'role'+'title' or 'meaning' to find the element.", isError: true)
+            }
+        } catch {
+            return ToolResult("Cannot find element: \(error.localizedDescription)", isError: true)
+        }
+
+        do {
+            try await ax.setText(element: element.element, text: text)
+            return ToolResult("Set value on \(element.role ?? "element")")
+        } catch {
+            return ToolResult("Set value failed: \(error.localizedDescription)", isError: true)
+        }
+    }
+
+    private func pressKey(ax: AccessibilityController, arguments: [String: Any]) async -> ToolResult {
+        guard let key = arguments["key"] as? String, !key.isEmpty else {
+            return ToolResult("Missing 'key' to press.", isError: true)
+        }
+
+        var flags: CGEventFlags = []
+        if let mods = arguments["modifiers"] as? String {
+            for mod in mods.lowercased().split(separator: ",").map({ $0.trimmingCharacters(in: .whitespaces) }) {
+                switch mod {
+                case "cmd", "command": flags.insert(.maskCommand)
+                case "shift": flags.insert(.maskShift)
+                case "alt", "option": flags.insert(.maskAlternate)
+                case "ctrl", "control": flags.insert(.maskControl)
+                default: break
+                }
+            }
+        }
+
+        do {
+            try await ax.pressKey(key: key, modifiers: flags)
+            let modStr = arguments["modifiers"] as? String
+            return ToolResult("Pressed \(modStr != nil ? "\(modStr!)+" : "")\(key)")
+        } catch {
+            return ToolResult("Key press failed: \(error.localizedDescription)", isError: true)
+        }
+    }
+
+    private func focusedApp() async -> ToolResult {
+        guard let app = NSWorkspace.shared.frontmostApplication else {
+            return ToolResult("No frontmost application.")
+        }
+        let name = app.localizedName ?? "Unknown"
+        let bundleID = app.bundleIdentifier ?? "Unknown"
+        let pid = app.processIdentifier
+
+        var result = "Focused app: \(name) (\(bundleID), pid \(pid))"
+
+        // Add symbiosis context if available
+        let symbContext = await ProcessSymbiosis.shared.contextString()
+        if !symbContext.isEmpty {
+            result += "\n\nLive UI state:\n\(symbContext)"
+        }
+
+        return ToolResult(result)
+    }
+
+    private func readFocused(ax: AccessibilityController) async -> ToolResult {
+        guard let focused = await ax.getFocusedElement() else {
+            return ToolResult("No focused UI element.")
+        }
+
+        func axStr(_ el: AXUIElement, _ attr: String) -> String? {
+            var v: AnyObject?
+            guard AXUIElementCopyAttributeValue(el, attr as CFString, &v) == .success else { return nil }
+            return v as? String
+        }
+
+        let role = axStr(focused, kAXRoleAttribute) ?? "unknown"
+        let title = axStr(focused, kAXTitleAttribute) ?? ""
+        let value = axStr(focused, kAXValueAttribute) ?? ""
+        let label = axStr(focused, kAXDescriptionAttribute) ?? ""
+
+        let isSecure = ax.isSecureTextField(focused)
+        let displayValue = isSecure ? "[SECURE]" : value
+
+        return ToolResult("Focused element: role=\(role) title=\"\(title)\" label=\"\(label)\" value=\"\(displayValue)\"")
+    }
+}

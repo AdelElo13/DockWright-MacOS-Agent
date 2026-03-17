@@ -286,10 +286,15 @@ final class AppState {
         tools.register(AppLauncherTool())
         tools.register(MusicTool())
         tools.register(ShortcutsTool())
+        tools.register(iMessageTool())
+        tools.register(UIAutomationTool())
 
         // Start sensory ambient loop (screen capture + OCR every 15s)
         // This is non-fatal -- if screen capture permission is denied, it degrades gracefully
         worldModel.startAmbientLoop()
+
+        // Start ProcessSymbiosis — live AX event monitoring for frontmost app
+        ProcessSymbiosis.shared.start()
 
         // Import Claude Code OAuth token if available
         authManager.importClaudeCodeTokenIfNeeded()
@@ -340,6 +345,7 @@ final class AppState {
 
         COMMUNICATION:
         - Read and manage emails via Mail.app (inbox, draft, reply, send, search)
+        - Read and send iMessages via Messages.app (read chats, send texts, search messages, list conversations)
         - Search and browse contacts (name, email, phone, birthdays)
         - Read and create Apple Notes (list, read, create, search, delete)
         - Manage Apple Reminders (create, complete, delete, overdue, lists)
@@ -351,6 +357,14 @@ final class AppState {
         - Run Apple Shortcuts by name with custom input
         - Create and manage reusable AI skills (teach yourself new capabilities)
         - Export structured data (CSV, JSON, HTML reports) to Desktop
+
+        UI AUTOMATION (ProcessSymbiosis — UNIQUE CAPABILITY):
+        - Click any button, menu item, or link in ANY running app by name or meaning
+        - Type text into any text field, fill forms, press keyboard shortcuts
+        - Read UI element values, labels, and state from any app
+        - Live AX event stream — you see focus changes, window creation, value changes in real-time
+        - Find elements semantically ("the save button", "email field") — not just by coordinates
+        - This works with EVERY macOS app: Mail, Safari, Chrome, Outlook, Finder, Notes, Terminal, etc.
 
         SYSTEM CONTROL:
         - Control volume, brightness, Wi-Fi, Bluetooth, dark mode, Do Not Disturb
@@ -370,20 +384,32 @@ final class AppState {
         MEDIA & BROWSER:
         - Control Music.app and Spotify (play, pause, skip, search, volume, queue)
         - Control Safari and Chrome (tabs, navigate, read pages, search web)
-        - See what's on the user's screen (ambient screen capture + OCR)
         - Analyze images (vision tool) — users can drop/paste images into chat
+
+        SCREEN AWARENESS (ALWAYS ON):
+        - You have an ambient loop that captures and OCRs the screen every 15 seconds automatically
+        - You always know what's on screen, which app is active, and which browser tabs are open
+        - This happens continuously in the background — you don't need to be asked
+        - The current screen context is included below — reference it naturally when relevant
 
         INTELLIGENCE:
         - Save and recall persistent memories about the user
         - Run multiple agent tasks in parallel
         - Deliver notifications via macOS, Telegram, and Discord
         - Brain dump → structured goals → daily tasks pipeline
+        - Auto-learns from tool errors and adapts (error memory bank)
 
         Current context:
         \(context)
 
         Active scheduled jobs: \(cronRunner.activeJobsSummary())
         """
+
+        // Inject live UI state from ProcessSymbiosis
+        let symbContext = ProcessSymbiosis.shared.contextString()
+        if !symbContext.isEmpty {
+            prompt += "\n\nLive UI state (ProcessSymbiosis):\n\(symbContext)"
+        }
 
         if agentMode {
             prompt += """
@@ -515,12 +541,25 @@ final class AppState {
     }
 
     func sendMessage(_ text: String, images: [ImageContent]? = nil) async {
-        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-
-        guard let apiKey = await ensureFreshAPIKey() else {
-            let provider = LLMModels.provider(for: selectedModel)
-            appendError("No API key configured for \(provider.rawValue). Go to Settings > API Keys.")
+        log.info("[SendMessage] Called with text: \(text.prefix(50))")
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            log.warning("[SendMessage] Empty text, returning")
             return
+        }
+
+        // Cancel any in-flight request before starting a new one
+        if let existing = streamTask {
+            log.info("[SendMessage] Cancelling previous stream task")
+            existing.cancel()
+            streamTask = nil
+            // Finalize the previous streaming message so it doesn't hang
+            if let lastIndex = currentConversation.messages.indices.last,
+               currentConversation.messages[lastIndex].isStreaming {
+                currentConversation.messages[lastIndex].isStreaming = false
+                if currentConversation.messages[lastIndex].content.isEmpty {
+                    currentConversation.messages[lastIndex].content = "*(cancelled)*"
+                }
+            }
         }
 
         // Build the user message content, including any pending file contents
@@ -535,7 +574,7 @@ final class AppState {
         allImages.append(contentsOf: pendingImages)
         pendingImages.removeAll()
 
-        // Append user message
+        // Show user message + activity IMMEDIATELY (before any async work)
         let userMessage = ChatMessage(role: .user, content: fullText)
         currentConversation.messages.append(userMessage)
         currentConversation.touch()
@@ -545,10 +584,17 @@ final class AppState {
             currentConversation.title = String(text.prefix(50))
         }
 
-        // Update export bridge
         ExportDataBridge.shared.currentConversation = currentConversation
-
         isProcessing = true
+        currentActivity = .thinking
+
+        guard let apiKey = await ensureFreshAPIKey() else {
+            let provider = LLMModels.provider(for: selectedModel)
+            appendError("No API key configured for \(provider.rawValue). Go to Settings > API Keys.")
+            isProcessing = false
+            currentActivity = nil
+            return
+        }
 
         // Create streaming assistant message
         let assistantMessage = ChatMessage(role: .assistant, content: "", isStreaming: true)
@@ -561,8 +607,10 @@ final class AppState {
     }
 
     private func runLLMLoop(apiKey: String, assistantIndex: Int, images: [ImageContent]? = nil) async {
+        log.info("[RunLLMLoop] Starting. model=\(self.selectedModel) keyPrefix=\(apiKey.prefix(15))... assistantIndex=\(assistantIndex)")
         var apiKey = apiKey
         var llmMessages = buildLLMMessages(images: images)
+        log.info("[RunLLMLoop] Built \(llmMessages.count) messages")
         let maxRetries = 3
         var retryCount = 0
 
@@ -582,6 +630,7 @@ final class AppState {
 
             do {
                 let toolDefs = tools.anthropicToolDefinitions()
+                log.info("[RunLLMLoop] Calling streamChat with \(toolDefs.count) tools")
                 streamingText = ""
                 currentActivity = .thinking
 
@@ -667,6 +716,7 @@ final class AppState {
                 break
 
             } catch let error as URLError where error.code == .notConnectedToInternet || error.code == .networkConnectionLost {
+                log.error("[RunLLMLoop] Network error: \(error.localizedDescription)")
                 if Task.isCancelled { break }
                 // Preserve any partial streaming content before showing error
                 if !streamingText.isEmpty, assistantIndex < currentConversation.messages.count {
@@ -710,6 +760,7 @@ final class AppState {
                 }
                 break
             } catch {
+                log.error("[RunLLMLoop] Unexpected error: \(error)")
                 if Task.isCancelled { break }
                 // Preserve partial content on any error
                 if !streamingText.isEmpty, assistantIndex < currentConversation.messages.count {
