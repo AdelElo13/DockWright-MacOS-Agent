@@ -159,6 +159,10 @@ Dockwright runs locally on your Mac. Screen captures, voice recordings, and memo
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
+## Support
+
+Questions, feedback, or just want to say hi? Reach out at **doc@dockwright.com**.
+
 ## License
 
 [MIT License](LICENSE) — free to use, modify, and distribute.
