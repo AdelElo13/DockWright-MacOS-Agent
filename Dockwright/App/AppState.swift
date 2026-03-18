@@ -632,7 +632,7 @@ final class AppState {
         pendingImages.removeAll()
 
         // Show user message + activity IMMEDIATELY (before any async work)
-        let userMessage = ChatMessage(role: .user, content: fullText)
+        let userMessage = ChatMessage(role: .user, content: fullText, images: allImages)
         currentConversation.messages.append(userMessage)
         currentConversation.touch()
 
@@ -986,12 +986,16 @@ final class AppState {
         for (idx, msg) in recentMessages.enumerated() {
             switch msg.role {
             case .user:
-                if idx == recentMessages.count - 1, let images, !images.isEmpty {
-                    // Last user message — attach images
-                    messages.append(.user(msg.content, images: images))
+                // Use images from ChatMessage if available, or from parameter for latest message
+                let msgImages: [ImageContent]?
+                if !msg.images.isEmpty {
+                    msgImages = msg.images
+                } else if idx == recentMessages.count - 1, let images, !images.isEmpty {
+                    msgImages = images
                 } else {
-                    messages.append(.user(msg.content))
+                    msgImages = nil
                 }
+                messages.append(.user(msg.content, images: msgImages))
             case .assistant:
                 if !msg.content.isEmpty {
                     messages.append(.assistant(msg.content))

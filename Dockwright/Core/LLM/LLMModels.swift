@@ -90,8 +90,9 @@ nonisolated struct ChatMessage: Identifiable, Codable, Sendable {
     var isStreaming: Bool
     var toolOutputs: [ToolOutput]
     var thinkingContent: String
+    var images: [ImageContent]
 
-    init(role: MessageRole, content: String, isStreaming: Bool = false) {
+    init(role: MessageRole, content: String, isStreaming: Bool = false, images: [ImageContent] = []) {
         self.id = UUID()
         self.role = role
         self.content = content
@@ -99,6 +100,19 @@ nonisolated struct ChatMessage: Identifiable, Codable, Sendable {
         self.isStreaming = isStreaming
         self.toolOutputs = []
         self.thinkingContent = ""
+        self.images = images
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        role = try c.decode(MessageRole.self, forKey: .role)
+        content = try c.decode(String.self, forKey: .content)
+        timestamp = try c.decode(Date.self, forKey: .timestamp)
+        isStreaming = try c.decodeIfPresent(Bool.self, forKey: .isStreaming) ?? false
+        toolOutputs = try c.decodeIfPresent([ToolOutput].self, forKey: .toolOutputs) ?? []
+        thinkingContent = try c.decodeIfPresent(String.self, forKey: .thinkingContent) ?? ""
+        images = try c.decodeIfPresent([ImageContent].self, forKey: .images) ?? []
     }
 
     /// Cleaned content for display — strips raw markdown syntax that looks ugly in plain Text.

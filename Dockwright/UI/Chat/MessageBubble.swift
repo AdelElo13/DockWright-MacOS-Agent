@@ -34,19 +34,34 @@ struct MessageBubble: View {
         HStack(alignment: .top, spacing: 8) {
             Spacer(minLength: 80)
 
-            Text(message.content)
-                .font(chatFont)
-                .foregroundStyle(.primary)
-                .textSelection(.enabled)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
-                .background(Color.primary.opacity(0.12))
-                .clipShape(RoundedRectangle(cornerRadius: 20))
-                .contextMenu {
-                    Button { copyToClipboard(message.content) } label: {
-                        Label("Copy", systemImage: "doc.on.doc")
+            VStack(alignment: .trailing, spacing: 6) {
+                // Attached images
+                ForEach(Array(message.images.enumerated()), id: \.offset) { _, img in
+                    if let nsImage = imageFromBase64(img) {
+                        Image(nsImage: nsImage)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(maxWidth: 240, maxHeight: 180)
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
                     }
                 }
+
+                if !message.content.isEmpty {
+                    Text(message.content)
+                        .font(chatFont)
+                        .foregroundStyle(.primary)
+                        .textSelection(.enabled)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
+                        .background(Color.primary.opacity(0.12))
+                        .clipShape(RoundedRectangle(cornerRadius: 20))
+                        .contextMenu {
+                            Button { copyToClipboard(message.content) } label: {
+                                Label("Copy", systemImage: "doc.on.doc")
+                            }
+                        }
+                }
+            }
 
             userAvatar
         }
@@ -184,6 +199,11 @@ struct MessageBubble: View {
     private func copyToClipboard(_ text: String) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
+    }
+
+    private func imageFromBase64(_ img: ImageContent) -> NSImage? {
+        guard let data = Data(base64Encoded: img.data) else { return nil }
+        return NSImage(data: data)
     }
 
     private var relativeTime: String {
