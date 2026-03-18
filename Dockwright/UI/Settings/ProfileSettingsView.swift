@@ -14,6 +14,7 @@ struct ProfileSettingsView: View {
     @State private var city: String = AppPreferences.shared.userCity
     @State private var postalCode: String = AppPreferences.shared.userPostalCode
     @State private var country: String = AppPreferences.shared.userCountry
+    @State private var assistantNickname: String = AppPreferences.shared.assistantName
     @State private var profileImage: NSImage?
 
     private static let profileImagePath: String = {
@@ -89,6 +90,19 @@ struct ProfileSettingsView: View {
                         .foregroundStyle(.tertiary)
                 } header: {
                     sectionHeader("About you")
+                }
+
+                // Assistant name
+                Section {
+                    TextField("Dockwright", text: $assistantNickname)
+                        .textFieldStyle(.roundedBorder)
+                        .onChange(of: assistantNickname) { _, val in prefs.assistantName = val.isEmpty ? "Dockwright" : val }
+
+                    Text("Give your assistant a custom name. It will introduce itself with this name and respond to it.")
+                        .font(DockwrightTheme.Typography.caption)
+                        .foregroundStyle(.tertiary)
+                } header: {
+                    sectionHeader("Assistant name")
                 }
 
                 // Preview

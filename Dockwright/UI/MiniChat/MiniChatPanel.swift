@@ -192,7 +192,7 @@ struct MiniChatContentView: View {
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(DockwrightTheme.primary)
                 }
-                Text("Dockwright")
+                Text(AppPreferences.shared.assistantName)
                     .font(.system(size: 13, weight: .semibold))
                 Spacer()
 

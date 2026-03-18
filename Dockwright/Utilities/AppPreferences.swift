@@ -36,6 +36,10 @@ final class AppPreferences {
     var userCountry: String {
         didSet { defaults.set(userCountry, forKey: "userCountry") }
     }
+    /// Custom name for the assistant (defaults to "Dockwright")
+    var assistantName: String {
+        didSet { defaults.set(assistantName, forKey: "assistantName") }
+    }
 
     // MARK: - General
 
@@ -150,6 +154,7 @@ final class AppPreferences {
         userCity = d.string(forKey: "userCity") ?? ""
         userPostalCode = d.string(forKey: "userPostalCode") ?? ""
         userCountry = d.string(forKey: "userCountry") ?? ""
+        assistantName = d.string(forKey: "assistantName") ?? "Dockwright"
 
         // General
         appearance = d.string(forKey: "appearance") ?? "system"

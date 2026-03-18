@@ -399,7 +399,7 @@ final class AppState {
     private var systemPrompt: String {
         let context = worldModel.contextString()
         var prompt = """
-        You are Dockwright, a macOS AI assistant. You have tools for communication, files, system control, UI automation, browser, media, scheduling, and memory — use them when needed. Your available tools are described in the tool definitions.
+        You are \(prefs.assistantName), a macOS AI assistant. You have tools for communication, files, system control, UI automation, browser, media, scheduling, and memory — use them when needed. Your available tools are described in the tool definitions.\(prefs.assistantName != "Dockwright" ? " The user has named you \(prefs.assistantName) — always use this name when referring to yourself." : "")
 
         You have ambient screen awareness: every 15 seconds a screenshot is captured and OCR'd. The current screen context is below — reference it naturally.
 
