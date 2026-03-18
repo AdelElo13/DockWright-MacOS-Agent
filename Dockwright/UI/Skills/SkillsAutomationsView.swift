@@ -1,43 +1,52 @@
 import SwiftUI
 
-/// Skills dashboard — shows what Dockwright can do (built-in + user skills).
+/// Skills dashboard — shows active skills + community skill store.
 struct SkillsAutomationsView: View {
     @Bindable var appState: AppState
 
     @State private var skills: [SkillLoader.Skill] = []
+    @State private var communitySkills: [SkillLoader.Skill] = []
+    @State private var selectedTab = 0  // 0 = My Skills, 1 = Skill Store
+    @State private var searchText = ""
 
     var body: some View {
         VStack(spacing: 0) {
             header
             Divider().opacity(0.2)
+
+            // Tab picker
+            Picker("", selection: $selectedTab) {
+                Text("My Skills").tag(0)
+                Text("Skill Store").tag(1)
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal, DockwrightTheme.Spacing.lg)
+            .padding(.vertical, DockwrightTheme.Spacing.sm)
+
+            if selectedTab == 1 {
+                // Search bar for store
+                HStack {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundStyle(.tertiary)
+                    TextField("Search skills...", text: $searchText)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 13))
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(Color.primary.opacity(0.06))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .padding(.horizontal, DockwrightTheme.Spacing.lg)
+                .padding(.bottom, DockwrightTheme.Spacing.xs)
+            }
+
             ScrollView {
                 VStack(spacing: DockwrightTheme.Spacing.sm) {
-                    if skills.isEmpty {
-                        emptyCard("No skills loaded", subtitle: "Create a skill to teach Dockwright new capabilities.")
+                    if selectedTab == 0 {
+                        mySkillsContent
                     } else {
-                        ForEach(Array(skills.enumerated()), id: \.offset) { _, skill in
-                            skillRow(skill)
-                        }
+                        skillStoreContent
                     }
-
-                    Button {
-                        appState.showSkillsAutomations = false
-                        Task {
-                            await appState.sendMessage("Create a new skill for me")
-                        }
-                    } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: "plus.circle.fill")
-                            Text("Create New Skill")
-                        }
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .background(DockwrightTheme.primary.opacity(0.8))
-                        .clipShape(Capsule())
-                    }
-                    .buttonStyle(.plain)
                 }
                 .padding(.horizontal, DockwrightTheme.Spacing.lg)
                 .padding(.vertical, DockwrightTheme.Spacing.md)
@@ -45,7 +54,7 @@ struct SkillsAutomationsView: View {
         }
         .frame(minWidth: 520, minHeight: 400)
         .background(DockwrightTheme.Surface.canvas)
-        .onAppear { skills = appState.skillLoader.allSkills }
+        .onAppear { refreshSkills() }
     }
 
     // MARK: - Header
@@ -56,7 +65,9 @@ struct SkillsAutomationsView: View {
                 Text("Skills")
                     .font(DockwrightTheme.Typography.title)
                     .foregroundStyle(.white)
-                Text("\(skills.count) skill\(skills.count == 1 ? "" : "s")")
+                Text(selectedTab == 0
+                     ? "\(skills.count) active"
+                     : "\(communitySkills.count) available")
                     .font(DockwrightTheme.Typography.caption)
                     .foregroundStyle(.secondary)
             }
@@ -78,9 +89,66 @@ struct SkillsAutomationsView: View {
         .padding(.vertical, DockwrightTheme.Spacing.md)
     }
 
-    // MARK: - Skill Row
+    // MARK: - My Skills Tab
 
-    private func skillRow(_ skill: SkillLoader.Skill) -> some View {
+    private var mySkillsContent: some View {
+        Group {
+            if skills.isEmpty {
+                emptyCard("No skills active", subtitle: "Activate skills from the Skill Store or create your own.")
+            } else {
+                ForEach(Array(skills.enumerated()), id: \.offset) { _, skill in
+                    activeSkillRow(skill)
+                }
+            }
+
+            Button {
+                appState.showSkillsAutomations = false
+                Task {
+                    await appState.sendMessage("Create a new skill for me")
+                }
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "plus.circle.fill")
+                    Text("Create New Skill")
+                }
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(DockwrightTheme.primary.opacity(0.8))
+                .clipShape(Capsule())
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    // MARK: - Skill Store Tab
+
+    private var filteredCommunitySkills: [SkillLoader.Skill] {
+        if searchText.isEmpty { return communitySkills }
+        let q = searchText.lowercased()
+        return communitySkills.filter {
+            $0.name.lowercased().contains(q) || $0.description.lowercased().contains(q)
+        }
+    }
+
+    private var skillStoreContent: some View {
+        Group {
+            if filteredCommunitySkills.isEmpty {
+                emptyCard("No skills found", subtitle: searchText.isEmpty
+                          ? "All community skills are already activated!"
+                          : "No skills match your search.")
+            } else {
+                ForEach(Array(filteredCommunitySkills.enumerated()), id: \.offset) { _, skill in
+                    communitySkillRow(skill)
+                }
+            }
+        }
+    }
+
+    // MARK: - Active Skill Row
+
+    private func activeSkillRow(_ skill: SkillLoader.Skill) -> some View {
         Button {
             appState.showSkillsAutomations = false
             let prompt: String
@@ -112,22 +180,19 @@ struct SkillsAutomationsView: View {
 
                 Spacer()
 
-                if !skill.requires.isEmpty {
-                    Text(skill.requires.joined(separator: ", "))
-                        .font(DockwrightTheme.Typography.captionMono)
-                        .foregroundStyle(.quaternary)
-                }
-
                 if skill.source != "builtin" {
                     Button {
-                        deleteSkill(skill)
+                        deactivateSkill(skill)
                     } label: {
-                        Image(systemName: "trash")
-                            .font(.system(size: 12))
-                            .foregroundStyle(.tertiary)
+                        Text("Remove")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 3)
+                            .background(Color.primary.opacity(0.06))
+                            .clipShape(Capsule())
                     }
                     .buttonStyle(.plain)
-                    .help("Delete skill")
                 }
             }
             .padding(.horizontal, DockwrightTheme.Spacing.md)
@@ -138,15 +203,83 @@ struct SkillsAutomationsView: View {
         .buttonStyle(.plain)
     }
 
-    // MARK: - Helpers
+    // MARK: - Community Skill Row
 
-    private func deleteSkill(_ skill: SkillLoader.Skill) {
-        guard skill.source != "builtin" else { return }
-        let url = URL(fileURLWithPath: skill.source)
-        try? FileManager.default.removeItem(at: url)
-        appState.skillLoader.reload()
-        skills = appState.skillLoader.allSkills
+    private func communitySkillRow(_ skill: SkillLoader.Skill) -> some View {
+        HStack(spacing: DockwrightTheme.Spacing.sm) {
+            Image(systemName: "arrow.down.circle.fill")
+                .font(.system(size: 14))
+                .foregroundStyle(DockwrightTheme.success)
+                .frame(width: 24)
+
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(skill.name)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                    if skill.stars > 0 {
+                        HStack(spacing: 2) {
+                            Image(systemName: "star.fill")
+                                .font(.system(size: 9))
+                            Text("\(skill.stars)")
+                                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                        }
+                        .foregroundStyle(.secondary)
+                    }
+                }
+                Text(skill.description)
+                    .font(DockwrightTheme.Typography.caption)
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(2)
+                if !skill.author.isEmpty {
+                    Text("by @\(skill.author)")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.quaternary)
+                }
+            }
+
+            Spacer()
+
+            Button {
+                activateSkill(skill)
+            } label: {
+                Text("Activate")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(DockwrightTheme.success.opacity(0.8))
+                    .clipShape(Capsule())
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, DockwrightTheme.Spacing.md)
+        .padding(.vertical, DockwrightTheme.Spacing.sm)
+        .background(DockwrightTheme.Surface.card)
+        .clipShape(RoundedRectangle(cornerRadius: DockwrightTheme.Radius.md))
     }
+
+    // MARK: - Actions
+
+    private func activateSkill(_ skill: SkillLoader.Skill) {
+        if appState.skillLoader.activateCommunitySkill(named: skill.name) {
+            refreshSkills()
+        }
+    }
+
+    private func deactivateSkill(_ skill: SkillLoader.Skill) {
+        if appState.skillLoader.deactivateSkill(named: skill.name) {
+            refreshSkills()
+        }
+    }
+
+    private func refreshSkills() {
+        skills = appState.skillLoader.allSkills
+        communitySkills = appState.skillLoader.availableCommunitySkills
+    }
+
+    // MARK: - Helpers
 
     private func emptyCard(_ title: String, subtitle: String) -> some View {
         VStack(spacing: DockwrightTheme.Spacing.xs) {

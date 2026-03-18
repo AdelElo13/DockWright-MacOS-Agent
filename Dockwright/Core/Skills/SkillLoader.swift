@@ -19,7 +19,6 @@ final class SkillLoader: @unchecked Sendable {
     private var skills: [Skill] = []
     private var communitySkills: [Skill] = []
     private let skillsDirectory: URL
-    private let communitySkillsDirectory: URL
 
     struct Skill: Sendable {
         let name: String
@@ -32,9 +31,8 @@ final class SkillLoader: @unchecked Sendable {
     }
 
     init() {
-        let home = FileManager.default.homeDirectoryForCurrentUser
-        self.skillsDirectory = home.appendingPathComponent(".dockwright/skills", isDirectory: true)
-        self.communitySkillsDirectory = home.appendingPathComponent(".dockwright/community-skills", isDirectory: true)
+        self.skillsDirectory = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".dockwright/skills", isDirectory: true)
         loadAll()
     }
 
@@ -147,19 +145,25 @@ final class SkillLoader: @unchecked Sendable {
 
             logger.info("Loaded \(self.skills.count) skills (\(Self.builtInSkills().count) built-in, \(self.skills.count - Self.builtInSkills().count) user)")
 
-            // Load community skills
+            // Load community skills from app bundle (Xcode flattens them into Resources/)
             communitySkills = []
-            try? fm.createDirectory(at: communitySkillsDirectory, withIntermediateDirectories: true)
-            if let communityFiles = try? fm.contentsOfDirectory(at: communitySkillsDirectory,
-                                                                  includingPropertiesForKeys: nil,
-                                                                  options: .skipsHiddenFiles) {
-                let mdFiles2 = communityFiles.filter { $0.pathExtension.lowercased() == "md" }
-                for file in mdFiles2 {
-                    guard let content = try? String(contentsOf: file, encoding: .utf8),
-                          let skill = Self.parse(content: content, source: file.path) else { continue }
-                    communitySkills.append(skill)
+            if let bundlePath = Bundle.main.resourcePath {
+                if let resourceFiles = try? fm.contentsOfDirectory(atPath: bundlePath) {
+                    let activeNames = Set(skills.map { $0.name.lowercased() })
+                    for file in resourceFiles where file.hasSuffix(".md") {
+                        let fullPath = (bundlePath as NSString).appendingPathComponent(file)
+                        guard let content = try? String(contentsOfFile: fullPath, encoding: .utf8),
+                              let skill = Self.parse(content: content, source: fullPath),
+                              skill.stars > 0  // Only community skills have stars
+                        else { continue }
+                        // Skip if already active
+                        if !activeNames.contains(skill.name.lowercased()) {
+                            communitySkills.append(skill)
+                        }
+                    }
+                    communitySkills.sort { $0.stars > $1.stars }
+                    logger.info("Found \(self.communitySkills.count) community skills in bundle")
                 }
-                logger.info("Found \(self.communitySkills.count) community skills available")
             }
         }
     }
