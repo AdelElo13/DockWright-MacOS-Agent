@@ -425,13 +425,19 @@ final class TelegramBotService {
 
         let chatId = update.chatId
         let userText = update.text
+        let mediaType = update.mediaType
+        let fileId = update.fileId
 
         if update.mediaType == .text { lastUserTextPerChat[chatId] = userText }
 
         activeTasks[chatId] = Task { [weak self] in
             guard let self else { return }
             defer { Task { @MainActor [weak self] in self?.activeTasks.removeValue(forKey: chatId) } }
-            await self.processMessage(chatId: chatId, text: userText)
+            if mediaType == .photo, let fid = fileId {
+                await self.processPhotoMessage(chatId: chatId, text: userText, fileId: fid)
+            } else {
+                await self.processMessage(chatId: chatId, text: userText)
+            }
         }
     }
 
@@ -543,9 +549,60 @@ final class TelegramBotService {
         }
     }
 
+    // MARK: - Media Download & Processing
+
+    /// Download a Telegram file by file_id → local temp URL
+    private func downloadTelegramFile(fileId: String) async -> URL? {
+        guard let infoURL = URL(string: "https://api.telegram.org/bot\(botToken)/getFile?file_id=\(fileId)") else { return nil }
+        guard let (data, _) = try? await URLSession.shared.data(from: infoURL),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let result = json["result"] as? [String: Any],
+              let filePath = result["file_path"] as? String else { return nil }
+        guard let dlURL = URL(string: "https://api.telegram.org/file/bot\(botToken)/\(filePath)") else { return nil }
+        guard let (fileData, _) = try? await URLSession.shared.data(from: dlURL) else { return nil }
+        let ext = (filePath as NSString).pathExtension.isEmpty ? "jpg" : (filePath as NSString).pathExtension
+        let localURL = FileManager.default.temporaryDirectory.appendingPathComponent("tg_\(UUID().uuidString).\(ext)")
+        try? fileData.write(to: localURL)
+        return localURL
+    }
+
+    /// Process a photo message: download → base64 → send to LLM with images
+    private func processPhotoMessage(chatId: String, text: String, fileId: String) async {
+        guard !Task.isCancelled else { return }
+        let typingTask = startTypingLoop(chatId: chatId)
+        _ = await sendHTMLMessage(chatId: chatId, html: "📥 <b>Downloading image...</b>")
+
+        guard let localURL = await downloadTelegramFile(fileId: fileId) else {
+            typingTask.cancel()
+            _ = await sendHTMLMessage(chatId: chatId, html: "❌ Could not download image")
+            return
+        }
+
+        // Convert to base64 ImageContent
+        guard let imageData = try? Data(contentsOf: localURL) else {
+            typingTask.cancel()
+            _ = await sendHTMLMessage(chatId: chatId, html: "❌ Could not read image data")
+            return
+        }
+        let base64 = imageData.base64EncodedString()
+        let ext = localURL.pathExtension.lowercased()
+        let mediaType = ext == "png" ? "image/png" : ext == "gif" ? "image/gif" : "image/jpeg"
+        let imageContent = ImageContent(type: "base64", mediaType: mediaType, data: base64)
+
+        // Clean up temp file
+        try? FileManager.default.removeItem(at: localURL)
+
+        let prompt = text.isEmpty ? "What's in this image?" : text
+
+        typingTask.cancel()
+
+        // Process via the normal LLM flow with images attached
+        await processMessage(chatId: chatId, text: prompt, images: [imageContent])
+    }
+
     // MARK: - Process Message (LLM + Tools + Progress)
 
-    private func processMessage(chatId: String, text: String) async {
+    private func processMessage(chatId: String, text: String, images: [ImageContent]? = nil) async {
         guard !Task.isCancelled else { return }
 
         let typingTask = startTypingLoop(chatId: chatId)
@@ -576,7 +633,11 @@ final class TelegramBotService {
 
         // Build messages
         let systemPrompt = buildSystemPrompt()
-        var llmMessages: [LLMMessage] = [.user(text)]
+        var userMsg = LLMMessage.user(text)
+        if let imgs = images, !imgs.isEmpty {
+            userMsg.images = imgs
+        }
+        var llmMessages: [LLMMessage] = [userMsg]
         let llm = LLMService()
         let toolDefs = ToolRegistry.shared.anthropicToolDefinitions()
         let toolExecutor = ToolExecutor()
