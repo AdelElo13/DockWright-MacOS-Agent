@@ -595,8 +595,10 @@ final class AppState {
 
     func sendMessage(_ text: String, images: [ImageContent]? = nil) async {
         log.info("[SendMessage] Called with text: \(text.prefix(50))")
-        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            log.warning("[SendMessage] Empty text, returning")
+        let hasText = !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let hasImages = !(images ?? []).isEmpty || !pendingImages.isEmpty
+        guard hasText || hasImages else {
+            log.warning("[SendMessage] Empty text and no images, returning")
             return
         }
 
@@ -616,7 +618,9 @@ final class AppState {
         }
 
         // Build the user message content, including any pending file contents
-        var fullText = text
+        var fullText = text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && hasImages
+            ? "What's in this image?"
+            : text
         for file in pendingFileContents {
             fullText += "\n\n--- File: \(file.name) ---\n\(file.content)"
         }

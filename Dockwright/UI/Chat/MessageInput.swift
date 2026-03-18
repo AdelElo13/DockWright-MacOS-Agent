@@ -482,7 +482,7 @@ struct MessageInput: View {
     }
 
     private var canSend: Bool {
-        !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || pendingImageCount > 0
     }
 
     // MARK: - Camera Capture
