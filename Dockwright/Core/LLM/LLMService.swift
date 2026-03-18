@@ -314,6 +314,10 @@ final class LLMService: @unchecked Sendable {
             for try await line in bytes.lines { errorBody += line; if errorBody.count > 2000 { break } }
             llmLog.warning("[Anthropic] HTTP \(httpResponse.statusCode): \(errorBody.prefix(500))")
             if httpResponse.statusCode == 401 { throw LLMError.unauthorized }
+            // OAuth tokens sometimes return 400 instead of 401 when expired
+            if httpResponse.statusCode == 400 && Self.isOAuthToken(trimmedKey) {
+                throw LLMError.unauthorized
+            }
             if httpResponse.statusCode == 429 { throw LLMError.rateLimited }
             if httpResponse.statusCode >= 500 {
                 throw LLMError.serverError(httpResponse.statusCode)
