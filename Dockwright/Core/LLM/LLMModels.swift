@@ -102,9 +102,9 @@ nonisolated struct ChatMessage: Identifiable, Codable, Sendable {
     }
 
     /// Cleaned content for display — strips raw markdown syntax that looks ugly in plain Text.
-    /// Only cleans assistant messages that are done streaming.
+    /// Always cleans assistant messages (during and after streaming).
     var displayContent: String {
-        guard role == .assistant, !isStreaming else { return content }
+        guard role == .assistant else { return content }
         return Self.cleanMarkdown(content)
     }
 
@@ -113,18 +113,33 @@ nonisolated struct ChatMessage: Identifiable, Codable, Sendable {
         var cleaned: [String] = []
 
         for line in text.components(separatedBy: "\n") {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
 
-            // Remove table separator rows: |---|---|
-            if trimmed.hasPrefix("|") && trimmed.contains("---") { continue }
+            // Remove table separator rows: |---|---| (any combo of |, -, :, spaces)
+            if trimmed.hasPrefix("|") {
+                let stripped = trimmed.replacingOccurrences(of: " ", with: "")
+                    .replacingOccurrences(of: "-", with: "")
+                    .replacingOccurrences(of: ":", with: "")
+                    .replacingOccurrences(of: "|", with: "")
+                if stripped.isEmpty { continue }
+            }
 
-            // Clean table rows: | col1 | col2 | → col1    col2
-            if trimmed.hasPrefix("|") && trimmed.hasSuffix("|") && trimmed.count > 2 {
-                let cells = trimmed.dropFirst().dropLast()
-                    .components(separatedBy: "|")
-                    .map { $0.trimmingCharacters(in: .whitespaces) }
-                cleaned.append(cells.joined(separator: "    "))
-                continue
+            // Clean table rows: | col1 | col2 | → col1  ·  col2
+            if trimmed.hasPrefix("|") {
+                var row = trimmed
+                // Strip leading/trailing pipes
+                if row.hasPrefix("|") { row = String(row.dropFirst()) }
+                if row.hasSuffix("|") { row = String(row.dropLast()) }
+                let cells = row.components(separatedBy: "|")
+                    .map { $0.trimmingCharacters(in: .whitespaces)
+                           .replacingOccurrences(of: "<br>", with: ", ")
+                           .replacingOccurrences(of: "<br/>", with: ", ")
+                    }
+                    .filter { !$0.isEmpty }
+                if !cells.isEmpty {
+                    cleaned.append(cells.joined(separator: "  ·  "))
+                    continue
+                }
             }
 
             // Remove horizontal rules
@@ -132,16 +147,20 @@ nonisolated struct ChatMessage: Identifiable, Codable, Sendable {
 
             var result = line
 
-            // Headers: ## Title → **Title**
+            // Headers: ## Title → Title (bold handled by LocalizedStringKey via **)
             if let range = result.range(of: #"^#{1,6}\s+"#, options: .regularExpression) {
                 result = "**\(result[range.upperBound...])**"
             }
 
-            // Bullets: - item → • item
-            if let range = result.range(of: #"^(\s*)[-*]\s+"#, options: .regularExpression) {
+            // Bullets: - item → • item  (but not --- which is a rule)
+            if let range = result.range(of: #"^(\s*)[-*]\s+(?![-*])"#, options: .regularExpression) {
                 let indent = result[range].prefix(while: { $0 == " " })
                 result = "\(indent)• \(result[range.upperBound...])"
             }
+
+            // Clean <br> tags
+            result = result.replacingOccurrences(of: "<br>", with: "\n")
+                .replacingOccurrences(of: "<br/>", with: "\n")
 
             cleaned.append(result)
         }

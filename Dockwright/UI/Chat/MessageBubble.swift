@@ -84,13 +84,13 @@ struct MessageBubble: View {
                 .tint(.secondary)
             }
 
-            // Content — plain Text while streaming (fast), LocalizedStringKey when done (bold/italic)
+            // Content — displayContent strips ##, |---|, --- etc. always
             if !message.content.isEmpty {
                 Group {
                     if message.isStreaming {
-                        Text(message.content)
+                        Text(message.displayContent)
                     } else {
-                        Text(LocalizedStringKey(message.content))
+                        Text(LocalizedStringKey(message.displayContent))
                     }
                 }
                 .font(chatFont)

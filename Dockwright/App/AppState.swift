@@ -885,7 +885,10 @@ final class AppState {
         // Finalize — flush buffered text if streaming was off
         if assistantIndex < currentConversation.messages.count {
             if !prefs.streamResponses && !streamingText.isEmpty {
-                currentConversation.messages[assistantIndex].content = streamingText
+                currentConversation.messages[assistantIndex].content = ChatMessage.cleanMarkdown(streamingText)
+            } else {
+                // Final clean pass on streamed content
+                currentConversation.messages[assistantIndex].content = ChatMessage.cleanMarkdown(currentConversation.messages[assistantIndex].content)
             }
             currentConversation.messages[assistantIndex].isStreaming = false
         }
@@ -922,8 +925,8 @@ final class AppState {
         case .textDelta(let text):
             streamingText += text
             if isStreaming {
-                // Live update — push every delta to UI
-                currentConversation.messages[assistantIndex].content = streamingText
+                // Live update — clean markdown before pushing to UI
+                currentConversation.messages[assistantIndex].content = ChatMessage.cleanMarkdown(streamingText)
             }
             // When !isStreaming the text accumulates in streamingText silently;
             // the final flush happens when the loop finishes (see runLLMLoop).
@@ -942,7 +945,7 @@ final class AppState {
         case .done:
             // Flush buffered text when streaming is off
             if !isStreaming {
-                currentConversation.messages[assistantIndex].content = streamingText
+                currentConversation.messages[assistantIndex].content = ChatMessage.cleanMarkdown(streamingText)
             }
             currentActivity = nil
 
