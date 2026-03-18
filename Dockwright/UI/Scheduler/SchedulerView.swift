@@ -104,7 +104,7 @@ struct SchedulerView: View {
                 .foregroundStyle(.white)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
-                .background(DockwrightTheme.primary.opacity(0.8))
+                .background(DockwrightTheme.accent)
                 .clipShape(Capsule())
             }
             .buttonStyle(.plain)
@@ -508,7 +508,7 @@ struct JobEditorView: View {
                         .foregroundStyle(.white)
                         .padding(.horizontal, 16)
                         .padding(.vertical, 8)
-                        .background(canSave ? DockwrightTheme.primary : DockwrightTheme.primary.opacity(0.3))
+                        .background(canSave ? DockwrightTheme.accent : DockwrightTheme.accent.opacity(0.3))
                         .clipShape(Capsule())
                 }
                 .buttonStyle(.plain)

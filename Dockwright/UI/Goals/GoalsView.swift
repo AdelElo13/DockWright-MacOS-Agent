@@ -83,7 +83,7 @@ struct GoalsView: View {
                 .foregroundStyle(.white)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
-                .background(DockwrightTheme.primary.opacity(0.8))
+                .background(DockwrightTheme.accent)
                 .clipShape(Capsule())
             }
             .buttonStyle(.plain)
