@@ -34,13 +34,13 @@ It doesn't just chat. It acts.
 
 ### Conversation
 - Streaming responses with full Markdown rendering
-- Multi-provider support — Claude, GPT-4o, Gemini, Grok, Ollama
+- Multi-provider support — Claude, GPT-4o, Gemini, Grok, DeepSeek, Mistral, Kimi, Ollama
 - OAuth sign-in (Claude, OpenAI) or API key
 - Conversation history with full-text search
 - Image analysis — drag, paste, or screenshot
 
 ### Tools
-Shell commands, file operations, web search, clipboard, system info, Apple Reminders, Apple Notes, Contacts, iMessage — 27 tools the AI can call autonomously.
+Shell commands, file operations, web search, clipboard, system info, Apple Reminders, Apple Notes, Calendar, Contacts, iMessage, Music/Spotify control, Finder operations, and more — 30 tools the AI can call autonomously.
 
 ### UI Automation (ProcessSymbiosis)
 Direct control of any macOS app via the Accessibility API. Click buttons, type text, press keyboard shortcuts, read UI elements — no pixel-guessing. Live AXObserver event stream monitors the frontmost app in real time, building a semantic model the AI can act on instantly.
@@ -61,14 +61,20 @@ Full cron engine with natural language. "Remind me in 2 minutes to stretch" just
 Give Dockwright a goal and it will plan, execute, self-correct, and report progress — up to 20 steps with full cancellation support.
 
 ### Memory
-Auto-extracts facts from conversations. Remembers tool failures and adapts — never bans a tool, just learns to call it smarter. SQLite + FTS5 backed.
+Auto-extracts facts from conversations and recalls them when relevant. Ranked retrieval (importance × relevance), automatic consolidation of stale/duplicate facts, and a **PoisonGuard** that blocks prompt injection attempts and credential leaks from being stored. Remembers tool failures and adapts — never bans a tool, just learns to call it smarter. SQLite + FTS5 backed.
 
 ### Skills
 Drop a Markdown file in `~/.dockwright/skills/` and Dockwright learns new abilities. No code required.
 
+### Profile
+Set your name, bio, and avatar in Settings → Profile. Dockwright uses this in conversations and displays your picture alongside messages in the chat.
+
 ### Integrations
 - Telegram bot — chat with Dockwright from your phone
+- WhatsApp Business — two-way messaging via Meta Cloud API
+- Discord — webhook notifications
 - A2A server — agent-to-agent protocol on port 8766
+- MCP server — Model Context Protocol on port 8767
 - Siri Shortcuts — 9 intents for Spotlight and Siri
 - Menu bar — always one click away
 - Global hotkey — Cmd+Shift+Space
@@ -88,7 +94,7 @@ Drop a Markdown file in `~/.dockwright/skills/` and Dockwright learns new abilit
 |---|---|
 | **OS** | macOS 14.0 Sonoma or later |
 | **Xcode** | 16.0 or later |
-| **AI Provider** | Anthropic, OpenAI, Google, xAI, or Ollama |
+| **AI Provider** | Anthropic, OpenAI, Google, xAI, DeepSeek, Mistral, Kimi, or Ollama |
 | **Dependencies** | None — pure Apple frameworks |
 
 ---
@@ -107,13 +113,13 @@ Dockwright/
 │   ├── Scheduler/ Cron engine, reminders
 │   ├── Sensory/   Screen capture, OCR, browser tabs, world model, ProcessSymbiosis, AX control
 │   ├── Skills/    Markdown skill loader
-│   ├── Tools/     27 tools (incl. UI automation, iMessage)
+│   ├── Tools/     30 tools (incl. UI automation, iMessage, Calendar, Music)
 │   └── Voice/     STT, TTS, wake word
 ├── UI/            SwiftUI (chat, sidebar, settings, onboarding)
 └── Utilities/     Keychain, SQLite, OAuth, logging
 ```
 
-**92 Swift files** · **27,000+ lines** · **Zero external dependencies**
+**98 Swift files** · **29,000+ lines** · **Zero external dependencies**
 
 ---
 
