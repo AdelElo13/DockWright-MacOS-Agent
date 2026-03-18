@@ -33,6 +33,10 @@
 
 ---
 
+> **This is a solo project.** I built Dockwright because I wanted an AI assistant that actually lives on my Mac — not in a browser tab. It's early, it's ambitious, and I'd love for people to try it out and share what works (and what doesn't). If you're into AI tooling, macOS development, or just want a better assistant — pull requests, issues, and feedback are all welcome. Let's build something great together.
+
+---
+
 ## What is Dockwright?
 
 Dockwright is a fully native macOS assistant — not a wrapper around a web app. It connects directly to Claude, OpenAI, Gemini, Grok, xAI, or local models via Ollama, and gives them real access to your system: files, shell, screen, browser, calendar, contacts, reminders, and more.
