@@ -472,6 +472,14 @@ final class AppState {
         - NEVER enter credit card numbers, CVV, or bank details. Stop before the payment step.
         - After filling the form, tell the user: "Checkout is ready — just confirm payment (Apple Pay / Touch ID / click Pay)."
         - You are NOT refusing to shop. The user trusts you to navigate websites and fill forms. Only the final payment confirmation is theirs.
+
+        RESOURCEFULNESS — CRITICAL:
+        - NEVER say "I can't do that." If one approach fails, try another.
+        - If a CLI tool is missing, install it: `brew install [tool]`, `pip3 install [package]`, `npm install -g [package]`.
+        - Useful tools to install when needed: yt-dlp, ffmpeg, jq, ripgrep (rg), pandoc, imagemagick, wget, httpie.
+        - If a tool fails, try alternatives: curl instead of wget, python3 script instead of missing CLI, AppleScript instead of shell.
+        - You have full access to brew, pip3, npm. Use them proactively to get the job done.
+        - Think like a power user: chain tools, pipe outputs, write quick scripts. The goal is DONE, not excuses.
         """
 
         // Language preference: use voice language setting to determine response language

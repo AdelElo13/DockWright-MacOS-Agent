@@ -17,27 +17,75 @@ final class SkillLoader: @unchecked Sendable {
     private let logger = Logger(subsystem: "com.Aatje.Dockwright", category: "Skills")
     private let queue = DispatchQueue(label: "com.Aatje.Dockwright.SkillLoader", qos: .utility)
     private var skills: [Skill] = []
+    private var communitySkills: [Skill] = []
     private let skillsDirectory: URL
+    private let communitySkillsDirectory: URL
 
     struct Skill: Sendable {
         let name: String
         let description: String
         let requires: [String]
         let body: String
-        let source: String  // "builtin" or file path
+        let source: String  // "builtin", "user", or "community"
+        var stars: Int = 0
+        var author: String = ""
     }
 
     init() {
-        self.skillsDirectory = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".dockwright/skills", isDirectory: true)
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        self.skillsDirectory = home.appendingPathComponent(".dockwright/skills", isDirectory: true)
+        self.communitySkillsDirectory = home.appendingPathComponent(".dockwright/community-skills", isDirectory: true)
         loadAll()
     }
 
     // MARK: - Public API
 
-    /// All loaded skills (built-in + user).
+    /// All loaded skills (built-in + user) — these are active.
     var allSkills: [Skill] {
         queue.sync { skills }
+    }
+
+    /// Community skills available but not yet activated.
+    var availableCommunitySkills: [Skill] {
+        queue.sync {
+            let activeNames = Set(skills.map { $0.name.lowercased() })
+            return communitySkills.filter { !activeNames.contains($0.name.lowercased()) }
+        }
+    }
+
+    /// Activate a community skill by copying it to user skills directory.
+    func activateCommunitySkill(named name: String) -> Bool {
+        guard let skill = communitySkills.first(where: { $0.name.lowercased() == name.lowercased() }) else { return false }
+        let fm = FileManager.default
+        try? fm.createDirectory(at: skillsDirectory, withIntermediateDirectories: true)
+        let filename = skill.name.lowercased().replacingOccurrences(of: " ", with: "-") + ".md"
+        let source = URL(fileURLWithPath: skill.source)
+        let dest = skillsDirectory.appendingPathComponent(filename)
+        do {
+            if fm.fileExists(atPath: dest.path) { try fm.removeItem(at: dest) }
+            try fm.copyItem(at: source, to: dest)
+            reload()
+            return true
+        } catch {
+            logger.error("Failed to activate skill '\(name)': \(error)")
+            return false
+        }
+    }
+
+    /// Deactivate a user skill by removing it from user skills directory.
+    func deactivateSkill(named name: String) -> Bool {
+        let fm = FileManager.default
+        let filename = name.lowercased().replacingOccurrences(of: " ", with: "-") + ".md"
+        let path = skillsDirectory.appendingPathComponent(filename)
+        guard fm.fileExists(atPath: path.path) else { return false }
+        do {
+            try fm.removeItem(at: path)
+            reload()
+            return true
+        } catch {
+            logger.error("Failed to deactivate skill '\(name)': \(error)")
+            return false
+        }
     }
 
     /// Reload skills from disk.
@@ -98,6 +146,21 @@ final class SkillLoader: @unchecked Sendable {
             }
 
             logger.info("Loaded \(self.skills.count) skills (\(Self.builtInSkills().count) built-in, \(self.skills.count - Self.builtInSkills().count) user)")
+
+            // Load community skills
+            communitySkills = []
+            try? fm.createDirectory(at: communitySkillsDirectory, withIntermediateDirectories: true)
+            if let communityFiles = try? fm.contentsOfDirectory(at: communitySkillsDirectory,
+                                                                  includingPropertiesForKeys: nil,
+                                                                  options: .skipsHiddenFiles) {
+                let mdFiles2 = communityFiles.filter { $0.pathExtension.lowercased() == "md" }
+                for file in mdFiles2 {
+                    guard let content = try? String(contentsOf: file, encoding: .utf8),
+                          let skill = Self.parse(content: content, source: file.path) else { continue }
+                    communitySkills.append(skill)
+                }
+                logger.info("Found \(self.communitySkills.count) community skills available")
+            }
         }
     }
 
@@ -122,6 +185,8 @@ final class SkillLoader: @unchecked Sendable {
         var name = ""
         var description = ""
         var requires: [String] = []
+        var stars = 0
+        var author = ""
 
         for line in frontmatter.components(separatedBy: .newlines) {
             let trimmedLine = line.trimmingCharacters(in: .whitespaces)
@@ -132,13 +197,17 @@ final class SkillLoader: @unchecked Sendable {
             } else if trimmedLine.hasPrefix("requires:") {
                 let reqStr = String(trimmedLine.dropFirst(9)).trimmingCharacters(in: .whitespaces)
                 requires = reqStr.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+            } else if trimmedLine.hasPrefix("stars:") {
+                stars = Int(String(trimmedLine.dropFirst(6)).trimmingCharacters(in: .whitespaces)) ?? 0
+            } else if trimmedLine.hasPrefix("author:") {
+                author = String(trimmedLine.dropFirst(7)).trimmingCharacters(in: .whitespaces)
             }
         }
 
         guard !name.isEmpty else { return nil }
         if description.isEmpty { description = name }
 
-        return Skill(name: name, description: description, requires: requires, body: body, source: source)
+        return Skill(name: name, description: description, requires: requires, body: body, source: source, stars: stars, author: author)
     }
 
     // MARK: - Built-in Skills
