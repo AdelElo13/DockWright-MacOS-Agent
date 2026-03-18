@@ -4,12 +4,30 @@ DerivedData/
 *.xcuserstate
 *.xcuserdatad/
 xcuserdata/
+*.xcscmblueprint
 
 # macOS
 .DS_Store
 *.swp
 *~
+.Trashes
 
-# Secrets
+# Secrets & credentials
 .env
 *.pem
+*.p12
+*.cer
+*.mobileprovision
+*.provisionprofile
+
+# Dockwright user data (never commit personal data)
+error_memory.json
+memory.db
+memory.db-wal
+memory.db-shm
+conversations/
+
+# IDE
+.idea/
+.vscode/
+*.code-workspace

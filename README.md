@@ -17,7 +17,7 @@
   <img src="https://img.shields.io/badge/platform-macOS%2014%2B-000000?style=flat-square&logo=apple&logoColor=white" alt="macOS 14+">
   <img src="https://img.shields.io/badge/Swift-6-F05138?style=flat-square&logo=swift&logoColor=white" alt="Swift 6">
   <img src="https://img.shields.io/badge/lines-26K-0891B2?style=flat-square" alt="26K lines">
-  <img src="https://img.shields.io/badge/license-private-lightgrey?style=flat-square" alt="Private">
+  <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="MIT License">
 </p>
 
 ---
@@ -40,13 +40,13 @@ It doesn't just chat. It acts.
 - Image analysis — drag, paste, or screenshot
 
 ### Tools
-Shell commands, file operations, web search, clipboard, system info, Apple Reminders, Apple Notes, Contacts, iMessage — 30 tools the AI can call autonomously.
+Shell commands, file operations, web search, clipboard, system info, Apple Reminders, Apple Notes, Contacts, iMessage — 27 tools the AI can call autonomously.
 
 ### UI Automation (ProcessSymbiosis)
 Direct control of any macOS app via the Accessibility API. Click buttons, type text, press keyboard shortcuts, read UI elements — no pixel-guessing. Live AXObserver event stream monitors the frontmost app in real time, building a semantic model the AI can act on instantly.
 
 ### Voice
-Hands-free operation with Apple Speech Recognition. Say "Hey Dockwright" to wake, speak naturally, get a spoken response. Silence detection, continuous mode, and session coordination to prevent audio conflicts.
+Hands-free operation with Apple Speech Recognition. Tap the mic, speak naturally, get a spoken response. Silence detection, continuous mode, and session coordination to prevent audio conflicts.
 
 ### Screen Awareness
 A 15-second ambient loop captures your screen, runs OCR, and feeds context to the AI. It knows which app is active, what you're reading, and which browser tabs are open — across Safari, Chrome, Firefox, Edge, Arc, and Brave.
@@ -107,7 +107,7 @@ Dockwright/
 │   ├── Scheduler/ Cron engine, reminders
 │   ├── Sensory/   Screen capture, OCR, browser tabs, world model, ProcessSymbiosis, AX control
 │   ├── Skills/    Markdown skill loader
-│   ├── Tools/     30 tools (incl. UI automation, iMessage)
+│   ├── Tools/     27 tools (incl. UI automation, iMessage)
 │   └── Voice/     STT, TTS, wake word
 ├── UI/            SwiftUI (chat, sidebar, settings, onboarding)
 └── Utilities/     Keychain, SQLite, OAuth, logging
@@ -123,6 +123,10 @@ Dockwright runs locally on your Mac. Screen captures, voice recordings, and memo
 
 ---
 
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+
 ## License
 
-Private — all rights reserved.
+[MIT License](LICENSE) — free to use, modify, and distribute.

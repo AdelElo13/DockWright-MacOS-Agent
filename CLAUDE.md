@@ -1,6 +1,6 @@
 # Dockwright — Autonomous Build Blueprint
 
-> **You are building Dockwright**: a macOS AI assistant that combines the best of JarvisMac (voice, sensory, UI) and OpenClaw (scheduling, browser automation, multi-device). Everything in Swift. Everything working. No stubs.
+> **You are building Dockwright**: a macOS AI assistant with voice, sensory awareness, scheduling, browser automation, and UI control. Everything in Swift. Everything working. No stubs.
 
 ## CRITICAL RULES
 
@@ -9,12 +9,12 @@
 3. **No stubs.** Every function must have real implementation. If you write `// TODO` you have failed.
 4. **Swift 6 concurrency.** This project uses `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`. All non-UI types need explicit `nonisolated` or `@unchecked Sendable`. Use `sending` where needed.
 5. **Test each phase.** After each phase builds, write a quick verification (print test, unit test, or runtime check).
-6. **Reference source files.** The Jarvis source is at `/Users/a/Open-Jarvis/JarvisMac/JarvisMac/`. Read actual files before reimplementing — don't guess.
+6. **Read existing code first.** Read actual files before reimplementing — don't guess.
 7. **Xcode auto-detects files.** This project uses `PBXFileSystemSynchronizedRootGroup` — just create `.swift` files in the right folders and Xcode picks them up. Do NOT edit `project.pbxproj` for source files.
 8. **Bundle ID:** `com.Aatje.Dockwright.Dockwright`
 9. **Deployment target:** macOS 14.0+ (change from 26.2 in pbxproj: `MACOSX_DEPLOYMENT_TARGET = 14.0`)
 10. **SPM packages needed** (must add via pbxproj or Package.swift):
-    - None initially. Kokoro TTS and ONNX wake word can be added in Phase 4.
+    - None initially.
 
 ## BUILD COMMAND
 
@@ -64,9 +64,9 @@ Dockwright/
 │   │   └── NotificationChannel.swift # UNUserNotificationCenter delivery
 │   │
 │   ├── Voice/
-│   │   ├── VoiceService.swift     # SFSpeechRecognizer STT (port from Jarvis)
+│   │   ├── VoiceService.swift     # SFSpeechRecognizer STT 
 │   │   ├── TTSService.swift       # AVSpeechSynthesizer (system TTS, Kokoro later)
-│   │   ├── WakeWordDetector.swift # SFSpeechRecognizer-based wake word (ONNX later)
+│   │   ├── WakeWordDetector.swift # SFSpeechRecognizer-based wake word 
 │   │   └── VoiceSessionCoordinator.swift # Ownership model
 │   │
 │   └── Sensory/
@@ -100,10 +100,10 @@ Dockwright/
 │       └── WelcomeView.swift      # API key → start chatting
 │
 ├── Resources/
-│   └── Models/                    # ONNX files for wake word (Phase 4)
+│   └── Models/                    # Wake word models (future)
 │       ├── melspectrogram.onnx
 │       ├── embedding_model.onnx
-│       └── hey_jarvis_v0.1.onnx
+│       └── wake_word.onnx
 │
 └── Utilities/
     ├── KeychainHelper.swift       # macOS Keychain CRUD
@@ -128,7 +128,6 @@ let log = Logger(subsystem: "com.Aatje.Dockwright", category: "general")
 ```
 
 **`Utilities/KeychainHelper.swift`**
-- Reference: `/Users/a/Open-Jarvis/JarvisMac/JarvisMac/Services/KeychainHelper.swift`
 - Methods: `save(key:value:)`, `read(key:) -> String?`, `delete(key:)`, `exists(key:) -> Bool`
 - Service name: `"com.Aatje.Dockwright"`
 - Use `kSecClassGenericPassword`, `kSecAttrAccessibleAfterFirstUnlock`
@@ -271,7 +270,6 @@ struct Conversation: Identifiable, Codable {
 #### 1.3 LLM Service
 
 **`Core/LLM/LLMService.swift`**
-- Reference: `/Users/a/Open-Jarvis/JarvisMac/JarvisMac/Services/LLMService.swift` and `LLMService+Streaming.swift`
 - Primary method: `streamChat(messages:tools:model:apiKey:onChunk:) async throws -> LLMResponse`
 - Anthropic API implementation:
   - POST `https://api.anthropic.com/v1/messages`
@@ -350,7 +348,6 @@ struct ToolResult: Sendable {
 #### 1.5 Conversation Store
 
 **`Core/Memory/ConversationStore.swift`**
-- Reference: `/Users/a/Open-Jarvis/JarvisMac/JarvisMac/Services/ConversationManager.swift`
 - Storage: `~/.dockwright/conversations/` directory, one JSON file per conversation
 - Index file: `~/.dockwright/conversations/index.json` (array of ConversationSummary)
 - Serial DispatchQueue for all file I/O
@@ -405,19 +402,15 @@ final class AppState {
 #### 1.7 UI
 
 **`UI/Theme/DockwrightTheme.swift`**
-- Reference: `/Users/a/Open-Jarvis/JarvisMac/JarvisMac/Theme/JarvisTheme.swift`
-- Port the EXACT color palette, typography scale, spacing scale, surface colors, opacity tokens
-- Rename `JarvisTheme` → `DockwrightTheme`
-- Keep ALL modifiers: `.glassCard()`, `.hoverCard()`, `.glow()`, `.shimmer()`
+- Color palette, typography scale, spacing scale, surface colors, opacity tokens
+- Modifiers: `.glassCard()`, `.hoverCard()`, `.glow()`, `.shimmer()`
 
 **`UI/Chat/ChatView.swift`**
-- Reference: `/Users/a/Open-Jarvis/JarvisMac/JarvisMac/Views/MainChatView.swift`
 - ScrollViewReader + LazyVStack of MessageBubble
 - Auto-scroll on new content
 - Empty state with logo + suggestions
 
 **`UI/Chat/MessageBubble.swift`**
-- Reference: `/Users/a/Open-Jarvis/JarvisMac/JarvisMac/Views/ChatMessageView.swift`
 - User: right-aligned dark pill, white text
 - Assistant: left-aligned, markdown rendering, tool cards
 - Custom BubbleShape with asymmetric corners
@@ -425,7 +418,6 @@ final class AppState {
 - Streaming cursor (blinking ▎)
 
 **`UI/Chat/MessageInput.swift`**
-- Reference: `/Users/a/Open-Jarvis/JarvisMac/JarvisMac/Views/MessageInputView.swift`
 - TextEditor with placeholder
 - Send button (white circle) / Stop button (red circle)
 - Enter to send, Shift+Enter for newline
@@ -443,7 +435,6 @@ final class AppState {
 - SF Symbol + label
 
 **`UI/Sidebar/SidebarView.swift`**
-- Reference: `/Users/a/Open-Jarvis/JarvisMac/JarvisMac/Views/AppSidebarView.swift`
 - New Thread button at top
 - Conversation list grouped by date (Today, Yesterday, This Week, Older)
 - Click to load, swipe to delete
@@ -506,7 +497,6 @@ enum CronAction: Codable, Sendable {
 ```
 
 **`Core/Scheduler/CronEngine.swift`**
-- Reference: `/Users/a/jarvis_assistant_v2/jarvis/core/cron_scheduler.py`
 - Full 5-field cron parser: minute, hour, dayOfMonth, month, dayOfWeek
 - Support: `*`, ranges `1-5`, steps `*/5`, lists `1,3,5`
 - `matches(date: Date) -> Bool` — check if a date matches the expression
@@ -580,28 +570,24 @@ Run app. Chat: "remind me in 10 seconds to test". Verify notification appears af
 ### Files:
 
 **`Core/Sensory/ScreenCaptureService.swift`**
-- Reference: `/Users/a/Open-Jarvis/JarvisMac/JarvisMac/Services/ScreenCaptureKitService.swift`
 - Use `screencapture -x -t png <tmpPath>` via Process (works on all macOS versions)
 - For macOS 15+: use `posix_spawn` with responsibility disclaim (POSIX_SPAWN_RESPONSIBLE_FLAG 0x800)
 - Return path to temp PNG
 - Cleanup after OCR
 
 **`Core/Sensory/VisionOCRService.swift`**
-- Reference: `/Users/a/Open-Jarvis/JarvisMac/JarvisMac/Services/VisionOCRService.swift`
 - `recognizeText(imagePath:) async throws -> String`
 - VNRecognizeTextRequest with `.accurate` level
 - Language correction enabled
 - Return full text joined by newlines
 
 **`Core/Sensory/BrowserTabWatcher.swift`**
-- Reference: `/Users/a/Open-Jarvis/JarvisMac/JarvisMac/Services/BrowserTabWatcher.swift`
 - Poll every 15 seconds
 - AppleScript for Safari, Chrome, Firefox, Edge, Arc, Brave
 - Extract: tab titles + URLs + active tab index
 - Feed to WorldModel
 
 **`Core/Sensory/WorldModel.swift`**
-- Reference: `/Users/a/Open-Jarvis/JarvisMac/JarvisMac/Services/WorldModel.swift`
 - Concurrent DispatchQueue with barrier writes
 - State: frontmostApp, openApps, screenContent, browserTabs, batteryLevel, isDarkMode, currentHour
 - `contextString() -> String` — formatted for LLM system prompt injection
@@ -623,7 +609,6 @@ Run app. Chat: "remind me in 10 seconds to test". Verify notification appears af
 ### Files:
 
 **`Core/Voice/VoiceService.swift`**
-- Reference: `/Users/a/Open-Jarvis/JarvisMac/JarvisMac/Services/VoiceService.swift`
 - SFSpeechRecognizer + AVAudioEngine
 - `startListening(onTranscription:onLevel:)` / `stopListening()`
 - Silence detection: speechThreshold 0.018, silenceThreshold 0.013, silenceDuration 1.5s
@@ -638,14 +623,12 @@ Run app. Chat: "remind me in 10 seconds to test". Verify notification appears af
 - Kokoro neural TTS can be added later as upgrade
 
 **`Core/Voice/WakeWordDetector.swift`**
-- Start with SFSpeechRecognizer-based detection (no ONNX dependency needed)
+- Start with SFSpeechRecognizer-based detection 
 - Listen for: "hey dockwright", "dockwright", "hey dock"
 - Fuzzy matching with Levenshtein distance
 - Fire callback on detection
-- ONNX pipeline can be added later
 
 **`Core/Voice/VoiceSessionCoordinator.swift`**
-- Reference: `/Users/a/Open-Jarvis/JarvisMac/JarvisMac/Services/VoiceSessionCoordinator.swift`
 - Ownership model: only one view owns voice at a time
 - `claim(owner:) -> Bool` — stops all audio, transfers ownership
 - Prevents AVAudioEngine double-tap crash
@@ -726,34 +709,9 @@ Guidelines:
 
 ---
 
-## REFERENCE FILES (READ THESE)
+## REFERENCE
 
-When implementing each component, READ the corresponding Jarvis file first:
-
-| Dockwright File | Reference File |
-|---|---|
-| KeychainHelper.swift | `/Users/a/Open-Jarvis/JarvisMac/JarvisMac/Services/KeychainHelper.swift` |
-| LLMService.swift | `/Users/a/Open-Jarvis/JarvisMac/JarvisMac/Services/LLMService.swift` |
-| LLMService streaming | `/Users/a/Open-Jarvis/JarvisMac/JarvisMac/Services/LLMService+Streaming.swift` |
-| ConversationStore | `/Users/a/Open-Jarvis/JarvisMac/JarvisMac/Services/ConversationManager.swift` |
-| ScreenCapture | `/Users/a/Open-Jarvis/JarvisMac/JarvisMac/Services/ScreenCaptureKitService.swift` |
-| VisionOCR | `/Users/a/Open-Jarvis/JarvisMac/JarvisMac/Services/VisionOCRService.swift` |
-| BrowserTabWatcher | `/Users/a/Open-Jarvis/JarvisMac/JarvisMac/Services/BrowserTabWatcher.swift` |
-| WorldModel | `/Users/a/Open-Jarvis/JarvisMac/JarvisMac/Services/WorldModel.swift` |
-| VoiceService | `/Users/a/Open-Jarvis/JarvisMac/JarvisMac/Services/VoiceService.swift` |
-| TTSService | `/Users/a/Open-Jarvis/JarvisMac/JarvisMac/Services/KokoroTTSService.swift` |
-| WakeWordDetector | `/Users/a/Open-Jarvis/JarvisMac/JarvisMac/Services/OWWDetector.swift` |
-| VoiceCoordinator | `/Users/a/Open-Jarvis/JarvisMac/JarvisMac/Services/VoiceSessionCoordinator.swift` |
-| Theme | `/Users/a/Open-Jarvis/JarvisMac/JarvisMac/Theme/JarvisTheme.swift` |
-| ChatView | `/Users/a/Open-Jarvis/JarvisMac/JarvisMac/Views/MainChatView.swift` |
-| MessageBubble | `/Users/a/Open-Jarvis/JarvisMac/JarvisMac/Views/ChatMessageView.swift` |
-| MessageInput | `/Users/a/Open-Jarvis/JarvisMac/JarvisMac/Views/MessageInputView.swift` |
-| Sidebar | `/Users/a/Open-Jarvis/JarvisMac/JarvisMac/Views/AppSidebarView.swift` |
-| Settings | `/Users/a/Open-Jarvis/JarvisMac/JarvisMac/Views/Settings/SettingsView.swift` |
-| CronEngine | `/Users/a/jarvis_assistant_v2/jarvis/core/cron_scheduler.py` |
-| ReminderService | `/Users/a/jarvis_assistant_v2/jarvis/core/reminder_scheduler.py` |
-| CronTool | `/Users/a/jarvis_assistant_v2/jarvis/plugins/cron_plugin.py` |
-| StreamChunk handling | `/Users/a/Open-Jarvis/JarvisMac/JarvisMac/Services/JarvisController.swift` |
+When implementing new components, always read existing code in the same module first to match patterns and conventions.
 
 ## PHASE 6 — Manus-Inspired Features
 
