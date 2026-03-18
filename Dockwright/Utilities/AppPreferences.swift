@@ -150,7 +150,7 @@ final class AppPreferences {
         // Notifications
         useSystemNotifications = d.object(forKey: "useSystemNotifications") as? Bool ?? true
         useTelegramNotifications = d.object(forKey: "useTelegramNotifications") as? Bool ?? true
-        useDiscordNotifications = d.object(forKey: "useDiscordNotifications") as? Bool ?? true
+        useDiscordNotifications = d.object(forKey: "useDiscordNotifications") as? Bool ?? false
         quietHoursEnabled = d.bool(forKey: "quietHoursEnabled")
         quietHoursStart = d.object(forKey: "quietHoursStart") as? Int ?? 22
         quietHoursEnd = d.object(forKey: "quietHoursEnd") as? Int ?? 8
