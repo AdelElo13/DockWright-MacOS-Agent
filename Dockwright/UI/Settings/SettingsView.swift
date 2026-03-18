@@ -137,11 +137,11 @@ struct SettingsView: View {
         VStack(spacing: DockwrightTheme.Spacing.xl) {
             Spacer()
 
-            ZStack {
-                Circle()
-                    .fill(DockwrightTheme.orbGradient)
-                    .frame(width: 50, height: 50)
-                    .blur(radius: 1)
+            if let img = NSImage(named: "AppIcon") {
+                Image(nsImage: img)
+                    .resizable()
+                    .frame(width: 80, height: 80)
+                    .clipShape(RoundedRectangle(cornerRadius: 16))
             }
 
             Text("Dockwright")

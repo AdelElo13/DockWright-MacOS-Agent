@@ -25,6 +25,7 @@ struct DockwrightApp: App {
             .preferredColorScheme(resolvedColorScheme)
             .onAppear {
                 applyAlwaysOnTop()
+                MiniChatPanel.shared.setup(appState: appState)
             }
             .onChange(of: prefs.alwaysOnTop) { _, _ in
                 applyAlwaysOnTop()
@@ -33,10 +34,7 @@ struct DockwrightApp: App {
         .windowStyle(.titleBar)
         .defaultSize(width: 1000, height: 700)
 
-        // Menu bar icon — respect showMenuBarExtra preference
-        MenuBarExtra("Dockwright", systemImage: "circle.hexagongrid.circle", isInserted: menuBarInserted) {
-            menuBarContent
-        }
+        // Menu bar popover — setup happens in .onAppear of main window
     }
 
     // MARK: - Appearance
@@ -70,7 +68,12 @@ struct DockwrightApp: App {
 
     private var menuBarContent: some View {
         VStack {
-            Button("Show Dockwright") {
+            Button("Mini Chat (Float)") {
+                MiniChatPanel.shared.toggle(appState: appState)
+            }
+            .keyboardShortcut("m", modifiers: [.command, .shift])
+
+            Button("Show Main Window") {
                 NSApp.activate(ignoringOtherApps: true)
                 if let window = NSApp.windows.first(where: { $0.title != "Item-0" && $0.canBecomeMain }) {
                     window.makeKeyAndOrderFront(nil)
