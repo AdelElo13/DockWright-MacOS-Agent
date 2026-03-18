@@ -20,6 +20,13 @@
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="MIT License">
 </p>
 
+<p align="center">
+  <a href="https://x.com/dockwrightapp"><img src="https://img.shields.io/badge/X-@dockwrightapp-000000?style=flat-square&logo=x&logoColor=white" alt="X"></a>
+  <a href="https://www.tiktok.com/@dockwright"><img src="https://img.shields.io/badge/TikTok-@dockwright-000000?style=flat-square&logo=tiktok&logoColor=white" alt="TikTok"></a>
+  <a href="https://discord.com/channels/@me"><img src="https://img.shields.io/badge/Discord-Join-5865F2?style=flat-square&logo=discord&logoColor=white" alt="Discord"></a>
+  <a href="https://dockwright.com"><img src="https://img.shields.io/badge/Web-dockwright.com-0891B2?style=flat-square&logo=safari&logoColor=white" alt="Website"></a>
+</p>
+
 ---
 
 ## What is Dockwright?
