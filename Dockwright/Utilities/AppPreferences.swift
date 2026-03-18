@@ -103,6 +103,9 @@ final class AppPreferences {
     var useDiscordNotifications: Bool {
         didSet { defaults.set(useDiscordNotifications, forKey: "useDiscordNotifications") }
     }
+    var wakeWordEnabled: Bool {
+        didSet { defaults.set(wakeWordEnabled, forKey: "wakeWordEnabled") }
+    }
     var quietHoursEnabled: Bool {
         didSet { defaults.set(quietHoursEnabled, forKey: "quietHoursEnabled") }
     }
@@ -180,6 +183,7 @@ final class AppPreferences {
         useSystemNotifications = d.object(forKey: "useSystemNotifications") as? Bool ?? true
         useTelegramNotifications = d.object(forKey: "useTelegramNotifications") as? Bool ?? true
         useDiscordNotifications = d.object(forKey: "useDiscordNotifications") as? Bool ?? false
+        wakeWordEnabled = d.object(forKey: "wakeWordEnabled") as? Bool ?? true
         quietHoursEnabled = d.bool(forKey: "quietHoursEnabled")
         quietHoursStart = d.object(forKey: "quietHoursStart") as? Int ?? 22
         quietHoursEnd = d.object(forKey: "quietHoursEnd") as? Int ?? 8

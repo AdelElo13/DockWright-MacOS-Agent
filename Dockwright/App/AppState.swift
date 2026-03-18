@@ -13,6 +13,7 @@ final class AppState {
     var isProcessing = false
     var streamingText = ""
     var currentActivity: StreamActivity?
+    private var streamBuffer: StreamTextBuffer?
 
     // Central preferences (single source of truth)
     let prefs = AppPreferences.shared
@@ -727,6 +728,16 @@ final class AppState {
                 streamingText = ""
                 currentActivity = .thinking
 
+                // Typewriter mode for providers that send large chunks (Anthropic, Gemini)
+                // Direct mode for providers that already send small tokens (OpenAI, etc.)
+                let provider = LLMModels.provider(for: selectedModel)
+                let useTypewriter = provider == .anthropic || provider == .google
+                let idx = assistantIndex
+                streamBuffer = StreamTextBuffer(typewriter: useTypewriter) { [weak self] fullText in
+                    guard let self, idx < self.currentConversation.messages.count else { return }
+                    self.currentConversation.messages[idx].content = fullText
+                }
+
                 // Log LLM request to inspector
                 eventLog.llmRequest(model: selectedModel, messageCount: llmMessages.count)
 
@@ -739,10 +750,13 @@ final class AppState {
                     temperature: prefs.temperature,
                     maxTokens: prefs.maxTokens
                 ) { [weak self] chunk in
-                    Task { @MainActor [weak self] in
+                    DispatchQueue.main.async { [weak self] in
                         self?.handleChunk(chunk, assistantIndex: assistantIndex)
                     }
                 }
+                // Force final flush so no text is lost
+                streamBuffer?.flush()
+                streamBuffer = nil
 
                 // Record tokens (both per-message and cumulative for cost display)
                 messageTokens += response.inputTokens + response.outputTokens
@@ -908,11 +922,16 @@ final class AppState {
         currentActivity = nil
         streamTask = nil
 
-        // Speak response in voice mode
+        // Voice mode: speak response via TTS, or restart wake word if no TTS
         if voiceMode, assistantIndex < currentConversation.messages.count {
             let responseText = currentConversation.messages[assistantIndex].content
             if !responseText.isEmpty {
                 speakResponse(responseText)
+            } else if prefs.wakeWordEnabled {
+                // No response to speak — restart wake word immediately
+                startWakeWordListening()
+            } else {
+                startListening()
             }
         }
 
@@ -937,8 +956,8 @@ final class AppState {
         case .textDelta(let text):
             streamingText += text
             if isStreaming {
-                // Live update — clean markdown before pushing to UI
-                currentConversation.messages[assistantIndex].content = ChatMessage.cleanMarkdown(streamingText)
+                // Throttled at 30Hz via StreamTextBuffer — no cleanMarkdown during streaming
+                streamBuffer?.append(text)
             }
             // When !isStreaming the text accumulates in streamingText silently;
             // the final flush happens when the loop finishes (see runLLMLoop).
@@ -1246,7 +1265,27 @@ final class AppState {
 
         voiceCoordinator.claim(.mainChat)
         voiceMode = true
-        startListening()
+        if prefs.wakeWordEnabled {
+            startWakeWordListening()
+        } else {
+            startListening()
+        }
+    }
+
+    /// Start wake word detector — passively listens for "Hey Doc" then activates voice.
+    func startWakeWordListening() {
+        guard voiceMode else { return }
+        voiceState = .idle
+        voiceLiveText = ""
+
+        let wakeWord = WakeWordDetector.shared
+        wakeWord.onWakeWord = { [weak self] in
+            guard let self, self.voiceMode else { return }
+            log.info("[WakeWord] Activated — starting voice listening")
+            self.startListening()
+        }
+        wakeWord.start()
+        log.info("[Voice] Wake word detector active — say 'Hey Doc' to activate")
     }
 
     func startListening() {
@@ -1316,6 +1355,8 @@ final class AppState {
         voiceService.stopListening()
         ttsService.onSpeakingComplete = nil
         ttsService.stopSpeaking()
+        WakeWordDetector.shared.stop()
+        WakeWordDetector.shared.onWakeWord = nil
         voiceCoordinator.release(.mainChat)
     }
 
@@ -1325,16 +1366,53 @@ final class AppState {
         voiceState = .speaking
         voiceLiveText = ""
 
+        // Stop mic before TTS — prevents Dockwright hearing itself
+        voiceService.stopListening()
+        WakeWordDetector.shared.stop()
+
         ttsService.onSpeakingComplete = { [weak self] in
             guard let self, self.voiceMode else { return }
-            // Cooldown before re-listening (avoids TTS residual audio triggering mic)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+            // Short cooldown after TTS — 0.5s is enough to avoid echo
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
                 guard let self, self.voiceMode else { return }
-                self.startListening()
+                if self.prefs.wakeWordEnabled {
+                    self.startWakeWordListening()
+                } else {
+                    self.startListening()
+                }
             }
         }
 
-        ttsService.speak(text: text)
+        ttsService.speak(text: Self.cleanForTTS(text))
+    }
+
+    /// Clean text for TTS — removes markdown, emojis, collapses whitespace.
+    /// Works for both macOS system TTS and ElevenLabs.
+    static func cleanForTTS(_ text: String) -> String {
+        var s = text
+        // Remove markdown bold/italic
+        s = s.replacingOccurrences(of: "**", with: "")
+        s = s.replacingOccurrences(of: "__", with: "")
+        // Remove markdown headers
+        s = s.replacingOccurrences(of: #"^#{1,6}\s+"#, with: "", options: .regularExpression)
+        // Remove markdown bullets
+        s = s.replacingOccurrences(of: #"^[\-\*]\s+"#, with: "", options: .regularExpression)
+        // Remove numbered list prefixes but keep the text
+        s = s.replacingOccurrences(of: #"^\d+\.\s+"#, with: "", options: .regularExpression)
+        // Remove markdown links [text](url) → text
+        s = s.replacingOccurrences(of: #"\[([^\]]+)\]\([^\)]+\)"#, with: "$1", options: .regularExpression)
+        // Remove code blocks
+        s = s.replacingOccurrences(of: #"```[\s\S]*?```"#, with: "code block omitted.", options: .regularExpression)
+        s = s.replacingOccurrences(of: #"`([^`]+)`"#, with: "$1", options: .regularExpression)
+        // Remove table syntax
+        s = s.replacingOccurrences(of: #"\|[\-\s\|]+\|"#, with: "", options: .regularExpression)
+        s = s.replacingOccurrences(of: #"\|"#, with: ", ", options: .regularExpression)
+        // Remove emojis (they get spelled out by TTS)
+        s = s.unicodeScalars.filter { !($0.properties.isEmoji && $0.properties.isEmojiPresentation) }
+            .map { String($0) }.joined()
+        // Collapse multiple whitespace/newlines into single space
+        s = s.replacingOccurrences(of: #"\s{2,}"#, with: " ", options: .regularExpression)
+        return s.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     // MARK: - AI-to-AI Server

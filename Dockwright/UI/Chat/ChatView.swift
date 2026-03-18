@@ -360,7 +360,9 @@ struct ChatView: View {
             appState.appendError("Voice mode is disabled. Enable it in Settings → Voice.")
             return
         }
-        // Start dictation
+        // Start dictation — stop wake word + voice first to avoid AVAudioEngine crash
+        WakeWordDetector.shared.stop()
+        voice.stopListening()
         voice.requestAuthorization()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
             guard voice.voiceEnabled else { return }

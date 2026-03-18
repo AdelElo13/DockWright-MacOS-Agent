@@ -326,6 +326,14 @@ struct VoiceSettingsView: View {
                         UserDefaults.standard.set(newValue, forKey: "voiceEnabled")
                     }
 
+                Toggle("Wake Word (Hey Doc)", isOn: Binding(
+                    get: { AppPreferences.shared.wakeWordEnabled },
+                    set: { AppPreferences.shared.wakeWordEnabled = $0 }
+                ))
+                Text("When on, Dockwright listens passively and activates when you say \"Hey Doc\". When off, voice mode listens immediately.")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+
                 Picker("Voice language", selection: $sttLanguage) {
                     ForEach(VoiceService.supportedSTTLanguages, id: \.id) { lang in
                         Text(lang.label).tag(lang.id)

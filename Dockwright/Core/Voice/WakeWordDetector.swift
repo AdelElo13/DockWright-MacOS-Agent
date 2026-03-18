@@ -71,6 +71,7 @@ final class WakeWordDetector: NSObject {
         "hey dockwright",
         "dockwright",
         "hey dock",
+        "hey doc",
         "hey doc right",
         "dock right",
     ]

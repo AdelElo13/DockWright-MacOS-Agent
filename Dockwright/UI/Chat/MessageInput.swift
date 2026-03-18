@@ -314,12 +314,21 @@ struct MessageInput: View {
         HStack(spacing: DockwrightTheme.Spacing.xs) {
             switch voiceState {
             case .idle:
-                Image(systemName: "mic.slash")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Text("Voice mode -- press mic to start")
-                    .font(DockwrightTheme.Typography.caption)
-                    .foregroundStyle(.secondary)
+                if AppPreferences.shared.wakeWordEnabled {
+                    Image(systemName: "ear")
+                        .font(.caption)
+                        .foregroundStyle(DockwrightTheme.primary.opacity(0.6))
+                    Text("Say \"Hey Doc\" to activate")
+                        .font(DockwrightTheme.Typography.caption)
+                        .foregroundStyle(DockwrightTheme.primary.opacity(0.6))
+                } else {
+                    Image(systemName: "mic.slash")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text("Voice mode — press mic to start")
+                        .font(DockwrightTheme.Typography.caption)
+                        .foregroundStyle(.secondary)
+                }
 
             case .listening:
                 Circle()
@@ -354,7 +363,8 @@ struct MessageInput: View {
     // MARK: - Dictate Button
 
     private var isRecording: Bool {
-        voiceState == .listening || voiceState == .transcribing
+        // Only show as recording for manual dictation, not voice conversation mode
+        !voiceMode && (voiceState == .listening || voiceState == .transcribing)
     }
 
     private var micButton: some View {
