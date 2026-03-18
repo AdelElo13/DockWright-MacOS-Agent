@@ -93,8 +93,17 @@ final class MiniChatPanel: NSObject, NSPopoverDelegate {
         isPinned.toggle()
         if isPinned {
             popover?.behavior = .applicationDefined
+            // Make the popover window float above all other windows
+            if let window = popover?.contentViewController?.view.window {
+                window.level = .floating
+                window.hidesOnDeactivate = false
+            }
         } else {
             popover?.behavior = .transient
+            if let window = popover?.contentViewController?.view.window {
+                window.level = .normal
+                window.hidesOnDeactivate = true
+            }
         }
     }
 

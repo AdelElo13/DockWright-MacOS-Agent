@@ -199,6 +199,11 @@ struct SidebarView: View {
         .padding(.horizontal, DockwrightTheme.Spacing.sm)
         .onHover { h in hoveredConversationId = h ? conv.id : nil }
         .contextMenu {
+            Button {
+                appState.togglePin(conv.id)
+            } label: {
+                Label(conv.isPinned ? "Unpin" : "Pin", systemImage: conv.isPinned ? "pin.slash" : "pin")
+            }
             Button("Delete", role: .destructive) {
                 if AppPreferences.shared.confirmDeletions {
                     pendingDeleteId = conv.id
@@ -228,14 +233,16 @@ struct SidebarView: View {
     private func groupConversations(_ convs: [ConversationSummary]) -> [ConversationGroup] {
         let cal = Calendar.current
         let now = Date()
-        let sorted = convs.sorted { $0.updatedAt > $1.updatedAt }
+
+        let pinned = convs.filter { $0.isPinned }.sorted { $0.updatedAt > $1.updatedAt }
+        let unpinned = convs.filter { !$0.isPinned }.sorted { $0.updatedAt > $1.updatedAt }
 
         var today: [ConversationSummary] = []
         var yesterday: [ConversationSummary] = []
         var thisWeek: [ConversationSummary] = []
         var older: [ConversationSummary] = []
 
-        for conv in sorted {
+        for conv in unpinned {
             if cal.isDateInToday(conv.updatedAt) {
                 today.append(conv)
             } else if cal.isDateInYesterday(conv.updatedAt) {
@@ -249,6 +256,7 @@ struct SidebarView: View {
         }
 
         var groups: [ConversationGroup] = []
+        if !pinned.isEmpty { groups.append(ConversationGroup(label: "Pinned", items: pinned)) }
         if !today.isEmpty { groups.append(ConversationGroup(label: "Today", items: today)) }
         if !yesterday.isEmpty { groups.append(ConversationGroup(label: "Yesterday", items: yesterday)) }
         if !thisWeek.isEmpty { groups.append(ConversationGroup(label: "This Week", items: thisWeek)) }

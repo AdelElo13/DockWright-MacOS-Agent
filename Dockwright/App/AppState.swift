@@ -1177,6 +1177,17 @@ final class AppState {
         loadConversations()
     }
 
+    func togglePin(_ id: String) {
+        if var conv = conversationStore.load(id: id) {
+            conv.isPinned.toggle()
+            conversationStore.save(conv)
+            if currentConversation.id == id {
+                currentConversation.isPinned = conv.isPinned
+            }
+            loadConversations()
+        }
+    }
+
     func loadConversations() {
         conversations = conversationStore.listAll()
     }

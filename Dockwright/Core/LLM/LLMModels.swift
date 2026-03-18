@@ -213,6 +213,7 @@ nonisolated struct Conversation: Identifiable, Codable, Sendable {
     var messages: [ChatMessage]
     var createdAt: Date
     var updatedAt: Date
+    var isPinned: Bool
 
     init(title: String = "New Chat") {
         self.id = "conv_\(UUID().uuidString.prefix(12).lowercased())"
@@ -220,6 +221,17 @@ nonisolated struct Conversation: Identifiable, Codable, Sendable {
         self.messages = []
         self.createdAt = Date()
         self.updatedAt = Date()
+        self.isPinned = false
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        title = try c.decode(String.self, forKey: .title)
+        messages = try c.decode([ChatMessage].self, forKey: .messages)
+        createdAt = try c.decode(Date.self, forKey: .createdAt)
+        updatedAt = try c.decode(Date.self, forKey: .updatedAt)
+        isPinned = try c.decodeIfPresent(Bool.self, forKey: .isPinned) ?? false
     }
 
     mutating func touch() {
@@ -236,6 +248,7 @@ nonisolated struct ConversationSummary: Identifiable, Codable, Sendable {
     var messageCount: Int
     var createdAt: Date
     var updatedAt: Date
+    var isPinned: Bool
 
     init(from conversation: Conversation) {
         self.id = conversation.id
@@ -244,6 +257,18 @@ nonisolated struct ConversationSummary: Identifiable, Codable, Sendable {
         self.messageCount = conversation.messages.count
         self.createdAt = conversation.createdAt
         self.updatedAt = conversation.updatedAt
+        self.isPinned = conversation.isPinned
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        title = try c.decode(String.self, forKey: .title)
+        preview = try c.decode(String.self, forKey: .preview)
+        messageCount = try c.decode(Int.self, forKey: .messageCount)
+        createdAt = try c.decode(Date.self, forKey: .createdAt)
+        updatedAt = try c.decode(Date.self, forKey: .updatedAt)
+        isPinned = try c.decodeIfPresent(Bool.self, forKey: .isPinned) ?? false
     }
 }
 
