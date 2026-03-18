@@ -443,6 +443,20 @@ final class AppState {
             """
         }
 
+        // Inject user profile if available (for checkout, personalization)
+        let p = prefs
+        var profileParts: [String] = []
+        if !p.userName.isEmpty { profileParts.append("Name: \(p.userName)") }
+        if !p.userEmail.isEmpty { profileParts.append("Email: \(p.userEmail)") }
+        if !p.userPhone.isEmpty { profileParts.append("Phone: \(p.userPhone)") }
+        if !p.userAddress.isEmpty { profileParts.append("Address: \(p.userAddress)") }
+        if !p.userCity.isEmpty { profileParts.append("City: \(p.userCity)") }
+        if !p.userPostalCode.isEmpty { profileParts.append("Postal code: \(p.userPostalCode)") }
+        if !p.userCountry.isEmpty { profileParts.append("Country: \(p.userCountry)") }
+        if !profileParts.isEmpty {
+            prompt += "\n\nUser profile:\n" + profileParts.joined(separator: "\n")
+        }
+
         prompt += """
 
         Guidelines:
@@ -450,6 +464,13 @@ final class AppState {
         - Only use tools when clearly needed — fewer precise calls over many speculative ones
         - For code questions: read the source code, don't screenshot
         - Use screen context to understand "this file" or "this page" references
+
+        Shopping & checkout:
+        - When the user asks you to buy/order something, DO IT. Open the website, find the product, add to cart, go to checkout.
+        - Fill checkout forms (name, email, phone, address) using the user profile above. This is explicitly authorized by the user.
+        - NEVER enter credit card numbers, CVV, or bank details. Stop before the payment step.
+        - After filling the form, tell the user: "Checkout is ready — just confirm payment (Apple Pay / Touch ID / click Pay)."
+        - You are NOT refusing to shop. The user trusts you to navigate websites and fill forms. Only the final payment confirmation is theirs.
         """
 
         // Language preference: use voice language setting to determine response language
@@ -651,10 +672,25 @@ final class AppState {
         await autoSummarizeIfNeeded()
 
         // Tool use loop — keeps calling LLM until no more tool calls
-        // Budget is per-message (tool loop), not cumulative across conversation
-        let tokenBudget = UserDefaults.standard.object(forKey: "agentTokenBudget") as? Int ?? 50000
+        // Budget is per-message (tool loop), dynamic based on model context window
+        let tokenBudget: Int = {
+            let custom = UserDefaults.standard.object(forKey: "agentTokenBudget") as? Int ?? 0
+            if custom > 0 { return custom }
+            // Auto-detect based on model — use 80% of context window as budget
+            let model = selectedModel.lowercased()
+            if model.contains("opus") || model.contains("gemini") { return 800_000 }  // 1M context
+            if model.contains("sonnet") { return 160_000 }  // 200K context
+            if model.contains("haiku") { return 160_000 }   // 200K context
+            if model.contains("gpt-5") || model.contains("o3") || model.contains("o4") { return 200_000 }  // 256K context
+            if model.contains("gpt-4") { return 100_000 }   // 128K context
+            if model.contains("deepseek") { return 100_000 } // 128K context
+            if model.contains("grok") { return 100_000 }     // 128K context
+            if model.contains("mistral") { return 100_000 }  // 128K context
+            if model.contains("kimi") { return 100_000 }     // 128K context
+            return 100_000  // safe default for unknown models
+        }()
         var messageTokens = 0
-        let maxToolLoops = 10
+        let maxToolLoops = UserDefaults.standard.object(forKey: "agentMaxSteps") as? Int ?? 50
         var toolLoopCount = 0
         while true {
             if Task.isCancelled { break }

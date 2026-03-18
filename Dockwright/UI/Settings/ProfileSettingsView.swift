@@ -8,6 +8,12 @@ struct ProfileSettingsView: View {
 
     @State private var name: String = AppPreferences.shared.userName
     @State private var bio: String = AppPreferences.shared.userBio
+    @State private var email: String = AppPreferences.shared.userEmail
+    @State private var phone: String = AppPreferences.shared.userPhone
+    @State private var address: String = AppPreferences.shared.userAddress
+    @State private var city: String = AppPreferences.shared.userCity
+    @State private var postalCode: String = AppPreferences.shared.userPostalCode
+    @State private var country: String = AppPreferences.shared.userCountry
     @State private var profileImage: NSImage?
 
     private static let profileImagePath: String = {
@@ -29,6 +35,43 @@ struct ProfileSettingsView: View {
                         .onChange(of: name) { _, val in prefs.userName = val }
                 } header: {
                     sectionHeader("Name")
+                }
+
+                // Contact
+                Section {
+                    TextField("Email", text: $email)
+                        .textFieldStyle(.roundedBorder)
+                        .onChange(of: email) { _, val in prefs.userEmail = val }
+                    TextField("Phone", text: $phone)
+                        .textFieldStyle(.roundedBorder)
+                        .onChange(of: phone) { _, val in prefs.userPhone = val }
+                } header: {
+                    sectionHeader("Contact")
+                }
+
+                // Address
+                Section {
+                    TextField("Street address", text: $address)
+                        .textFieldStyle(.roundedBorder)
+                        .onChange(of: address) { _, val in prefs.userAddress = val }
+                    HStack(spacing: 8) {
+                        TextField("Postal code", text: $postalCode)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 120)
+                            .onChange(of: postalCode) { _, val in prefs.userPostalCode = val }
+                        TextField("City", text: $city)
+                            .textFieldStyle(.roundedBorder)
+                            .onChange(of: city) { _, val in prefs.userCity = val }
+                    }
+                    TextField("Country", text: $country)
+                        .textFieldStyle(.roundedBorder)
+                        .onChange(of: country) { _, val in prefs.userCountry = val }
+
+                    Text("Used for auto-filling checkout forms when Dockwright shops for you.")
+                        .font(DockwrightTheme.Typography.caption)
+                        .foregroundStyle(.tertiary)
+                } header: {
+                    sectionHeader("Address")
                 }
 
                 // Bio

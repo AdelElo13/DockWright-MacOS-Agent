@@ -18,6 +18,24 @@ final class AppPreferences {
     var userBio: String {
         didSet { defaults.set(userBio, forKey: "userBio") }
     }
+    var userEmail: String {
+        didSet { defaults.set(userEmail, forKey: "userEmail") }
+    }
+    var userPhone: String {
+        didSet { defaults.set(userPhone, forKey: "userPhone") }
+    }
+    var userAddress: String {
+        didSet { defaults.set(userAddress, forKey: "userAddress") }
+    }
+    var userCity: String {
+        didSet { defaults.set(userCity, forKey: "userCity") }
+    }
+    var userPostalCode: String {
+        didSet { defaults.set(userPostalCode, forKey: "userPostalCode") }
+    }
+    var userCountry: String {
+        didSet { defaults.set(userCountry, forKey: "userCountry") }
+    }
 
     // MARK: - General
 
@@ -126,6 +144,12 @@ final class AppPreferences {
         // Profile
         userName = d.string(forKey: "userName") ?? ""
         userBio = d.string(forKey: "userBio") ?? ""
+        userEmail = d.string(forKey: "userEmail") ?? ""
+        userPhone = d.string(forKey: "userPhone") ?? ""
+        userAddress = d.string(forKey: "userAddress") ?? ""
+        userCity = d.string(forKey: "userCity") ?? ""
+        userPostalCode = d.string(forKey: "userPostalCode") ?? ""
+        userCountry = d.string(forKey: "userCountry") ?? ""
 
         // General
         appearance = d.string(forKey: "appearance") ?? "system"

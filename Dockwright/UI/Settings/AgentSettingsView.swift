@@ -3,8 +3,8 @@ import SwiftUI
 /// Agent mode and autonomy settings.
 struct AgentSettingsView: View {
     @State private var autonomyLevel = UserDefaults.standard.string(forKey: "autonomyLevel") ?? "suggest"
-    @State private var maxStepsPerTask = UserDefaults.standard.object(forKey: "agentMaxSteps") as? Int ?? 10
-    @State private var tokenBudget = UserDefaults.standard.object(forKey: "agentTokenBudget") as? Int ?? 50000
+    @State private var maxStepsPerTask = UserDefaults.standard.object(forKey: "agentMaxSteps") as? Int ?? 50
+    @State private var tokenBudget = UserDefaults.standard.object(forKey: "agentTokenBudget") as? Int ?? 0
     @State private var heartbeatEnabled = UserDefaults.standard.object(forKey: "heartbeatEnabled") as? Bool ?? true
     @State private var heartbeatInterval = UserDefaults.standard.object(forKey: "heartbeatInterval") as? Int ?? 30
     @State private var activeHoursStart = UserDefaults.standard.object(forKey: "activeHoursStart") as? Int ?? 7
@@ -47,21 +47,24 @@ struct AgentSettingsView: View {
             }
 
             Section("Agent Limits") {
-                Stepper("Max steps per task: \(maxStepsPerTask)", value: $maxStepsPerTask, in: 1...50)
+                Stepper("Max steps per task: \(maxStepsPerTask)", value: $maxStepsPerTask, in: 5...200)
                     .onChange(of: maxStepsPerTask) { _, v in
                         UserDefaults.standard.set(v, forKey: "agentMaxSteps")
                     }
 
                 VStack(alignment: .leading) {
-                    Text("Token budget per request: \(tokenBudget / 1000)k")
+                    Text("Token budget per request: \(tokenBudget == 0 ? "Auto (model max)" : "\(tokenBudget / 1000)k")")
                         .font(.caption)
                     Slider(value: Binding(
                         get: { Double(tokenBudget) },
                         set: { tokenBudget = Int($0) }
-                    ), in: 5000...200000, step: 5000)
+                    ), in: 0...1_000_000, step: 50_000)
                     .onChange(of: tokenBudget) { _, v in
                         UserDefaults.standard.set(v, forKey: "agentTokenBudget")
                     }
+                    Text("0 = auto-detect based on model (recommended). Claude Opus: 800k, Sonnet: 160k, GPT: 100k.")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.tertiary)
                 }
 
                 Stepper("Max parallel tasks: \(parallelTasks)", value: $parallelTasks, in: 1...10)
