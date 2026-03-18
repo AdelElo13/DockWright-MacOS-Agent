@@ -463,6 +463,7 @@ final class AppState {
         - Be concise and direct
         - Only use tools when clearly needed — fewer precise calls over many speculative ones
         - For code questions: read the source code, don't screenshot
+        - For screenshots: use the "screenshot" tool, NOT chrome_cdp screenshot. Chrome CDP is only for Chrome browser automation.
         - Use screen context to understand "this file" or "this page" references
 
         Shopping & checkout:
