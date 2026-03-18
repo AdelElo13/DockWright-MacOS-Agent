@@ -24,7 +24,7 @@
 
 ## What is Dockwright?
 
-Dockwright is a fully native macOS assistant — not a wrapper around a web app. It connects directly to Claude, GPT-4o, Gemini, Grok, or local models via Ollama, and gives them real access to your system: files, shell, screen, browser, calendar, contacts, reminders, and more.
+Dockwright is a fully native macOS assistant — not a wrapper around a web app. It connects directly to Claude, OpenAI, Gemini, Grok, xAI, or local models via Ollama, and gives them real access to your system: files, shell, screen, browser, calendar, contacts, reminders, and more.
 
 It doesn't just chat. It acts.
 
@@ -34,7 +34,7 @@ It doesn't just chat. It acts.
 
 ### Conversation
 - Streaming responses with full Markdown rendering
-- Multi-provider support — Claude, GPT-4o, Gemini, Grok, DeepSeek, Mistral, Kimi, Ollama
+- Multi-provider support — Claude, OpenAI, Gemini, Grok, xAI, DeepSeek, Mistral, Kimi, Ollama
 - OAuth sign-in (Claude, OpenAI) or API key
 - Conversation history with full-text search
 - Image analysis — drag, paste, or screenshot
