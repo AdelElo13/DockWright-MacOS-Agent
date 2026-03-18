@@ -1,14 +1,10 @@
 import Foundation
 @preconcurrency import Vision
 import AppKit
-import os.log
-
 /// In-process OCR using Apple Vision framework.
 /// Extracts text from screenshot images for screen awareness.
 nonisolated final class VisionOCRService: @unchecked Sendable {
     static let shared = VisionOCRService()
-
-    private let logger = Logger(subsystem: "com.Aatje.Dockwright", category: "vision-ocr")
 
     private init() {}
 

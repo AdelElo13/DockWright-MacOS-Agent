@@ -1,8 +1,4 @@
 import Foundation
-import os
-
-nonisolated private let cdpLog = Logger(subsystem: "com.Aatje.Dockwright", category: "ChromeCDP")
-
 /// Chrome DevTools Protocol tool — controls Chrome via its remote debugging port.
 /// Requires Chrome to be launched with `--remote-debugging-port=9222`.
 /// Actions: connect, evaluate, navigate, screenshot, dom, network, click, type, wait.
@@ -107,25 +103,6 @@ nonisolated struct ChromeCDPTool: Tool, @unchecked Sendable {
     }
 
     /// Get the WebSocket debug URL for a specific tab.
-    private func getTabWsUrl(index: Int) async throws -> (String, String, String) {
-        let tabs = try await getTabs()
-        let pageTabs = tabs.filter { ($0["type"] as? String) == "page" }
-
-        guard index < pageTabs.count else {
-            throw CDPError.tabNotFound("Tab index \(index) not found. Available: \(pageTabs.count) tabs")
-        }
-
-        let tab = pageTabs[index]
-        guard let wsUrl = tab["webSocketDebuggerUrl"] as? String else {
-            throw CDPError.noDebugUrl("Tab \(index) has no WebSocket debug URL")
-        }
-
-        let title = tab["title"] as? String ?? "Unknown"
-        let url = tab["url"] as? String ?? ""
-
-        return (wsUrl, title, url)
-    }
-
     /// Send a CDP command via HTTP (using /json/protocol endpoint isn't needed —
     /// we use the REST API for simple commands and describe WebSocket for advanced usage).
     /// For simplicity, we use Chrome's built-in HTTP endpoints + JavaScript evaluation.

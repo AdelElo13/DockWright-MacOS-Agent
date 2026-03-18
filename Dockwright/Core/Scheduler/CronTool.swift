@@ -61,7 +61,6 @@ struct CronTool: Tool, @unchecked Sendable {
     ]
 
     private let store: CronStore
-    private let logger = Logger(subsystem: "com.Aatje.Dockwright", category: "CronTool")
 
     init(store: CronStore) {
         self.store = store

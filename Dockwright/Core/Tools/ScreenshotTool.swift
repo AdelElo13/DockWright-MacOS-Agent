@@ -1,10 +1,6 @@
 import Foundation
 import AppKit
 import CoreGraphics
-import os
-
-nonisolated private let screenshotLogger = Logger(subsystem: "com.dockwright", category: "ScreenshotTool")
-
 /// LLM tool for capturing screenshots using the macOS screencapture command.
 /// Actions: capture_screen, capture_window, capture_area, list_windows.
 nonisolated struct ScreenshotTool: Tool, @unchecked Sendable {

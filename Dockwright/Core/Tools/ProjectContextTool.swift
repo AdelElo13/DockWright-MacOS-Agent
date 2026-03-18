@@ -59,8 +59,6 @@ nonisolated struct ProjectContextTool: Tool, @unchecked Sendable {
         ] as [String: Any]
     ]
 
-    private static let logger = Logger(subsystem: "com.Aatje.Dockwright", category: "ProjectContextTool")
-
     /// Directories excluded from project_structure and find_files.
     private static let excludedDirs: Set<String> = [
         "node_modules", ".git", "build", "Build", "DerivedData",

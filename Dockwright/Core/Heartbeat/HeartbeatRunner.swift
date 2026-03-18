@@ -1,6 +1,5 @@
 import Foundation
 import os
-import UserNotifications
 
 /// Periodic heartbeat that checks for actionable notifications (reminders, system status, etc.)
 /// Fires every 30 minutes during active hours (07:00-23:00). Deduplicates identical messages

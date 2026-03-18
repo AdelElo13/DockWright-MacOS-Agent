@@ -121,7 +121,6 @@ enum EmptyStateStrings {
 /// Main chat view with message list + input, drag & drop support, and agent mode indicator.
 struct ChatView: View {
     @Bindable var appState: AppState
-    @State private var isDragOver = false
     @State private var isDictating = false
     @State private var dictationPollTask: Task<Void, Never>?
     @State private var promptText = ""
@@ -201,29 +200,6 @@ struct ChatView: View {
         }
         .background(DockwrightTheme.Surface.canvas)
         // DEBUG: .onDrop, .overlay, .onChange temporarily removed to test scroll freeze
-    }
-
-    // MARK: - Drop Overlay
-
-    private var dropOverlay: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(DockwrightTheme.primary, style: StrokeStyle(lineWidth: 2, dash: [8, 4]))
-                .padding(DockwrightTheme.Spacing.lg)
-
-            VStack(spacing: DockwrightTheme.Spacing.md) {
-                Image(systemName: "arrow.down.doc")
-                    .font(.system(size: 32, weight: .light))
-                    .foregroundStyle(DockwrightTheme.primary)
-                Text("Drop files or images here")
-                    .font(DockwrightTheme.Typography.heading)
-                    .foregroundStyle(DockwrightTheme.primary)
-                Text("Images, code files, text files, and folders supported")
-                    .font(DockwrightTheme.Typography.caption)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .background(DockwrightTheme.Surface.canvas.opacity(0.9))
     }
 
     // MARK: - Message List
@@ -461,30 +437,4 @@ struct ChatView: View {
         }
     }
 
-    private func handleViewDrop(_ providers: [NSItemProvider]) -> Bool {
-        var handled = false
-
-        for provider in providers {
-            if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
-                provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier) { item, _ in
-                    guard let data = item as? Data,
-                          let url = URL(dataRepresentation: data, relativeTo: nil) else { return }
-                    Task { @MainActor in
-                        handleFileDrop([url])
-                    }
-                }
-                handled = true
-            } else if provider.hasItemConformingToTypeIdentifier(UTType.image.identifier) {
-                provider.loadDataRepresentation(forTypeIdentifier: UTType.image.identifier) { data, _ in
-                    guard let data, let image = NSImage(data: data) else { return }
-                    Task { @MainActor in
-                        handleImagePaste(image)
-                    }
-                }
-                handled = true
-            }
-        }
-
-        return handled
-    }
 }

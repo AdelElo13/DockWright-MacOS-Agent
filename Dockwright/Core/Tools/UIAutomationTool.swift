@@ -1,9 +1,5 @@
 import Foundation
 import AppKit
-import os
-
-nonisolated private let uiLog = Logger(subsystem: "com.Aatje.Dockwright", category: "UIAutomationTool")
-
 /// LLM tool for direct UI automation — click buttons, type text, read UI elements, press keys.
 /// Uses macOS Accessibility API (AXUIElement) for reliable, semantic-level control of ANY app.
 nonisolated struct UIAutomationTool: Tool, @unchecked Sendable {

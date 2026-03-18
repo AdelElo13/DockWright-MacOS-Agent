@@ -373,26 +373,6 @@ final class TelegramBotService {
 
     // MARK: - Media Download
 
-    private func downloadFile(fileId: String, suggestedName: String?) async -> URL? {
-        guard let infoURL = URL(string: "https://api.telegram.org/bot\(botToken)/getFile?file_id=\(fileId)") else { return nil }
-        var req = URLRequest(url: infoURL)
-        req.timeoutInterval = 10
-        guard let (data, _) = try? await URLSession.shared.data(for: req),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let result = json["result"] as? [String: Any],
-              let filePath = result["file_path"] as? String else { return nil }
-
-        guard let dlURL = URL(string: "https://api.telegram.org/file/bot\(botToken)/\(filePath)") else { return nil }
-        var dlReq = URLRequest(url: dlURL)
-        dlReq.timeoutInterval = 30
-        guard let (fileData, _) = try? await URLSession.shared.data(for: dlReq) else { return nil }
-
-        let name = suggestedName ?? (filePath as NSString).lastPathComponent
-        let localURL = mediaDir.appendingPathComponent(name)
-        try? fileData.write(to: localURL)
-        return localURL
-    }
-
     // MARK: - Typing Loop
 
     private func startTypingLoop(chatId: String) -> Task<Void, Never> {
@@ -818,5 +798,4 @@ final class TelegramBotService {
         return prompt
     }
 
-    private func escapeHTML(_ text: String) -> String { escapeHTMLBot(text) }
 }
