@@ -16,8 +16,10 @@
 <p align="center">
   <img src="https://img.shields.io/badge/platform-macOS%2014%2B-000000?style=flat-square&logo=apple&logoColor=white" alt="macOS 14+">
   <img src="https://img.shields.io/badge/Swift-6-F05138?style=flat-square&logo=swift&logoColor=white" alt="Swift 6">
-  <img src="https://img.shields.io/badge/lines-30K-0891B2?style=flat-square" alt="30K lines">
+  <img src="https://img.shields.io/badge/tools-30-0891B2?style=flat-square" alt="30 tools">
+  <img src="https://img.shields.io/badge/dependencies-0-48C7BE?style=flat-square" alt="0 dependencies">
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="MIT License">
+  <img src="https://img.shields.io/github/stars/AdelElo13/DockWright-MacOS-Agent?style=flat-square&color=yellow" alt="Stars">
 </p>
 
 <p align="center">
@@ -34,6 +36,23 @@
 ---
 
 > **This is a solo project.** I built Dockwright because I wanted an AI assistant that actually lives on my Mac — not in a browser tab. It's early, it's ambitious, and I'd love for people to try it out and share what works (and what doesn't). If you're into AI tooling, macOS development, or just want a better assistant — pull requests, issues, and feedback are all welcome. Let's build something great together.
+
+---
+
+<table>
+<tr>
+<td width="25%" align="center"><strong>30 Tools</strong><br><sub>Email, calendar, contacts, shell, browser, music, iMessage, files, and more</sub></td>
+<td width="25%" align="center"><strong>9 Providers</strong><br><sub>Claude, OpenAI, Gemini, Grok, xAI, DeepSeek, Mistral, Kimi, Ollama</sub></td>
+<td width="25%" align="center"><strong>Voice</strong><br><sub>Say "Hey Doc" — wake word, speech-to-text, text-to-speech</sub></td>
+<td width="25%" align="center"><strong>Screen Aware</strong><br><sub>OCR every 15s, knows what's on screen, which apps and tabs are open</sub></td>
+</tr>
+<tr>
+<td align="center"><strong>UI Automation</strong><br><sub>Click, type, and read any app via Accessibility API</sub></td>
+<td align="center"><strong>Memory</strong><br><sub>Remembers facts, ranked retrieval, poison guard, auto-consolidation</sub></td>
+<td align="center"><strong>Skills</strong><br><sub>20 community skills pre-bundled, teach it new ones with Markdown</sub></td>
+<td align="center"><strong>0 Dependencies</strong><br><sub>Pure Swift + Apple frameworks. No Electron, no Docker, no npm</sub></td>
+</tr>
+</table>
 
 ---
 
