@@ -342,8 +342,9 @@ nonisolated struct ChromeCDPTool: Tool, @unchecked Sendable {
 
     private func screenshot(_ args: [String: Any]) async -> ToolResult {
         let tabIndex = (args["tab_index"] as? Int) ?? 0
+        let tmpPath = NSTemporaryDirectory() + "chrome_screenshot_\(UUID().uuidString.prefix(8)).png"
 
-        // Try CDP screenshot
+        // Try CDP screenshot first
         do {
             let result = try await sendCDPCommand(
                 tabIndex: tabIndex,
@@ -352,56 +353,33 @@ nonisolated struct ChromeCDPTool: Tool, @unchecked Sendable {
             )
 
             if let resultObj = result["result"] as? [String: Any],
-               let base64Data = resultObj["data"] as? String {
-                // Save to temp file
-                let tmpPath = NSTemporaryDirectory() + "chrome_screenshot_\(UUID().uuidString.prefix(8)).png"
-                if let data = Data(base64Encoded: base64Data) {
-                    try data.write(to: URL(fileURLWithPath: tmpPath))
-                    return ToolResult("Screenshot saved to: \(tmpPath) (\(data.count / 1024)KB)")
-                }
+               let base64Data = resultObj["data"] as? String,
+               let data = Data(base64Encoded: base64Data) {
+                try data.write(to: URL(fileURLWithPath: tmpPath))
+                return ToolResult("Screenshot saved to: \(tmpPath) (\(data.count / 1024)KB)")
             }
-
-            return ToolResult("Screenshot captured but could not decode data", isError: true)
         } catch {
-            // Fall back to screencapture of Chrome window
-            let tmpPath = NSTemporaryDirectory() + "chrome_screenshot_\(UUID().uuidString.prefix(8)).png"
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
-            process.arguments = ["-l", "", "-x", "-t", "png", tmpPath]
+            // CDP not available — fall through to screencapture
+        }
 
-            // Get Chrome window ID via AppleScript
-            do {
-                let windowScript = """
-                tell application "System Events"
-                    tell process "Google Chrome"
-                        set winId to id of front window
-                    end tell
-                end tell
-                return winId
-                """
-                let winProcess = Process()
-                winProcess.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-                winProcess.arguments = ["-e", windowScript]
-                let winStdout = Pipe()
-                winProcess.standardOutput = winStdout
-                try winProcess.run()
-                winProcess.waitUntilExit()
-
-                // Just capture the whole screen as fallback
-                let captureProcess = Process()
-                captureProcess.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
-                captureProcess.arguments = ["-x", "-t", "png", tmpPath]
-                try captureProcess.run()
-                captureProcess.waitUntilExit()
-
-                if FileManager.default.fileExists(atPath: tmpPath) {
-                    return ToolResult("Screenshot saved to: \(tmpPath) (screen capture fallback)")
+        // Fallback: use screencapture CLI (always works)
+        return await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+                process.arguments = ["-x", "-t", "png", tmpPath]
+                do {
+                    try process.run()
+                    process.waitUntilExit()
+                    if FileManager.default.fileExists(atPath: tmpPath) {
+                        continuation.resume(returning: ToolResult("Screenshot saved to: \(tmpPath) (screen capture fallback)"))
+                    } else {
+                        continuation.resume(returning: ToolResult("Screenshot failed — file not created. Use the 'screenshot' tool instead.", isError: true))
+                    }
+                } catch {
+                    continuation.resume(returning: ToolResult("Screenshot failed: \(error.localizedDescription). Use the 'screenshot' tool instead.", isError: true))
                 }
-            } catch {
-                // ignore
             }
-
-            return ToolResult("Failed to take screenshot: \(error.localizedDescription)\n\nTip: Launch Chrome with --remote-debugging-port=9222 for CDP screenshots.", isError: true)
         }
     }
 
