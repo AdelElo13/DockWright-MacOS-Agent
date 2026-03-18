@@ -266,7 +266,6 @@ final class AppState {
         // Register core tools
         tools.register(VisionTool())
         tools.register(ClipboardTool())
-        tools.register(SystemTool())
         tools.register(FileWatcherTool())
         tools.register(ExportTool())
         tools.register(RemindersTool())
@@ -282,6 +281,8 @@ final class AppState {
         tools.register(AutoSkillCreatorTool())
 
         // Register macOS power tools
+        // NOTE: SystemTool removed — SystemControlTool + AppLauncherTool cover all its actions.
+        // AppLauncherTool handles open_app/open_url/running_apps, SystemControlTool handles volume/dark_mode/system_info.
         tools.register(ScreenshotTool())
         tools.register(SystemControlTool())
         tools.register(ContactsTool())
@@ -347,7 +348,7 @@ final class AppState {
 
     /// Initialize SQLite-backed memory on a background task so launch remains responsive.
     private func initializeMemoryStoreAsync() {
-        Task(priority: .utility) { [weak self] in
+        Task(priority: .userInitiated) { [weak self] in
             guard let self else { return }
             do {
                 try self.memoryStore.setup()
@@ -398,63 +399,9 @@ final class AppState {
     private var systemPrompt: String {
         let context = worldModel.contextString()
         var prompt = """
-        You are Dockwright, the most powerful macOS AI assistant ever built. You have deep integration with every part of macOS through these tools:
+        You are Dockwright, a macOS AI assistant. You have tools for communication, files, system control, UI automation, browser, media, scheduling, and memory — use them when needed. Your available tools are described in the tool definitions.
 
-        COMMUNICATION:
-        - Read and manage emails via Mail.app (inbox, draft, reply, send, search)
-        - Read and send iMessages via Messages.app (read chats, send texts, search messages, list conversations)
-        - Search and browse contacts (name, email, phone, birthdays)
-        - Read and create Apple Notes (list, read, create, search, delete)
-        - Manage Apple Reminders (create, complete, delete, overdue, lists)
-
-        PRODUCTIVITY:
-        - Access calendar events (today, upcoming, create, search, delete)
-        - Track goals with milestones and daily action items
-        - Schedule recurring tasks and one-shot reminders (cron jobs)
-        - Run Apple Shortcuts by name with custom input
-        - Create and manage reusable AI skills (teach yourself new capabilities)
-        - Export structured data (CSV, JSON, HTML reports) to Desktop
-
-        UI AUTOMATION (ProcessSymbiosis — UNIQUE CAPABILITY):
-        - Click any button, menu item, or link in ANY running app by name or meaning
-        - Type text into any text field, fill forms, press keyboard shortcuts
-        - Read UI element values, labels, and state from any app
-        - Live AX event stream — you see focus changes, window creation, value changes in real-time
-        - Find elements semantically ("the save button", "email field") — not just by coordinates
-        - This works with EVERY macOS app: Mail, Safari, Chrome, Outlook, Finder, Notes, Terminal, etc.
-
-        SYSTEM CONTROL:
-        - Control volume, brightness, Wi-Fi, Bluetooth, dark mode, Do Not Disturb
-        - Get battery status, system info (CPU, memory, disk, uptime)
-        - Put display to sleep, lock screen
-        - Launch, quit, force-quit, hide, and activate any app
-        - Capture screenshots (full screen, window, or selection)
-        - Read and write the system clipboard
-
-        FILES & CODE:
-        - Advanced file management (move, copy, rename, trash, compress, decompress)
-        - Spotlight search (mdfind) for finding anything on the Mac
-        - Run shell commands, read/write files
-        - Git integration (status, log, diff, branch, project structure)
-        - Watch directories for file changes
-
-        MEDIA & BROWSER:
-        - Control Music.app and Spotify (play, pause, skip, search, volume, queue)
-        - Control Safari and Chrome (tabs, navigate, read pages, search web)
-        - Analyze images (vision tool) — users can drop/paste images into chat
-
-        SCREEN AWARENESS (ALWAYS ON):
-        - You have an ambient loop that captures and OCRs the screen every 15 seconds automatically
-        - You always know what's on screen, which app is active, and which browser tabs are open
-        - This happens continuously in the background — you don't need to be asked
-        - The current screen context is included below — reference it naturally when relevant
-
-        INTELLIGENCE:
-        - Save and recall persistent memories about the user
-        - Run multiple agent tasks in parallel
-        - Deliver notifications via macOS, Telegram, and Discord
-        - Brain dump → structured goals → daily tasks pipeline
-        - Auto-learns from tool errors and adapts (error memory bank)
+        You have ambient screen awareness: every 15 seconds a screenshot is captured and OCR'd. The current screen context is below — reference it naturally.
 
         Current context:
         \(context)
@@ -491,14 +438,9 @@ final class AppState {
 
         Guidelines:
         - Be concise and direct
-        - Only use tools when they're clearly needed to answer the question. Do NOT use tools speculatively
-        - For code/debugging questions: read the actual source code with file/project_context — don't screenshot
-        - Only use screenshot when the user explicitly asks to see or capture their screen visually
-        - For reminders/scheduling, use the scheduler tool with create_reminder action
-        - When the user mentions something on screen, reference your screen awareness context (already provided above)
-        - When showing code, use markdown code blocks with language tags
-        - When the user says "this file" or "this page", use screen context to determine what they mean
-        - Think about which tool is the RIGHT one before calling it. Fewer precise tool calls > many speculative ones
+        - Only use tools when clearly needed — fewer precise calls over many speculative ones
+        - For code questions: read the source code, don't screenshot
+        - Use screen context to understand "this file" or "this page" references
         """
 
         // Language preference: use voice language setting to determine response language

@@ -70,7 +70,7 @@ final class ProcessSymbiosis {
     // Throttle: buffer events on background, flush to main max 4x/sec
     private nonisolated(unsafe) static var pendingEvents: [(notification: String, bundleID: String, pid: pid_t, role: String, title: String?, value: String?, desc: String?)] = []
     private nonisolated(unsafe) static var flushScheduled = false
-    private static let pendingLock = NSLock()
+    private nonisolated static let pendingLock = NSLock()
 
     private init() {}
 

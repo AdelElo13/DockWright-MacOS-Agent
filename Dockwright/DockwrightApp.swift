@@ -317,6 +317,13 @@ struct DockwrightApp: App {
         } message: {
             Text(appState.toolApprovalDescription)
         }
+        .onChange(of: appState.showToolApproval) { _, shown in
+            // Safety: if alert dismissed without button tap, resume with deny
+            if !shown, let cont = appState.toolApprovalContinuation {
+                cont.resume(returning: false)
+                appState.toolApprovalContinuation = nil
+            }
+        }
     }
 }
 

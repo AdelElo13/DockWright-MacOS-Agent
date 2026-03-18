@@ -63,25 +63,34 @@ nonisolated struct SystemControlTool: Tool, @unchecked Sendable {
     // MARK: - Process Runner
 
     private func runProcess(_ executablePath: String, arguments: [String]) async throws -> (status: Int32, stdout: String, stderr: String) {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: executablePath)
-        process.arguments = arguments
+        try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: executablePath)
+                process.arguments = arguments
 
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
+                let stdoutPipe = Pipe()
+                let stderrPipe = Pipe()
+                process.standardOutput = stdoutPipe
+                process.standardError = stderrPipe
 
-        try process.run()
-        process.waitUntilExit()
+                do {
+                    try process.run()
+                } catch {
+                    continuation.resume(throwing: error)
+                    return
+                }
+                process.waitUntilExit()
 
-        let outData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-        let errData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+                let outData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+                let errData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
 
-        let stdout = String(data: outData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let stderr = String(data: errData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                let stdout = String(data: outData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                let stderr = String(data: errData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
 
-        return (process.terminationStatus, stdout, stderr)
+                continuation.resume(returning: (process.terminationStatus, stdout, stderr))
+            }
+        }
     }
 
     private func runAppleScript(_ source: String) async throws -> String {

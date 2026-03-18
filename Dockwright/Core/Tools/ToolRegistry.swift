@@ -30,13 +30,10 @@ nonisolated final class ToolRegistry: @unchecked Sendable {
     private var tools: [String: any Tool] = [:]
 
     private init() {
-        // Register built-in tools (others registered by AppState)
+        // Only register minimal tools here. All others registered by AppState.
         register(ShellTool())
         register(FileTool())
         register(WebSearchTool())
-        register(ClipboardTool())
-        register(ScreenshotTool())
-        register(SystemControlTool())
     }
 
     func register(_ tool: any Tool) {

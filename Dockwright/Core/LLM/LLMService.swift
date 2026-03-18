@@ -58,24 +58,13 @@ final class LLMService: @unchecked Sendable {
         maxTokens: Int? = nil,
         onChunk: @escaping @Sendable (StreamChunk) -> Void
     ) async throws -> LLMResponse {
-        let maxRetries = 4
-        var lastError: Error?
-        for attempt in 1...maxRetries {
-            do {
-                return try await _streamChatOnce(
-                    messages: messages, tools: tools, model: model,
-                    apiKey: apiKey, systemPrompt: systemPrompt,
-                    temperature: temperature, maxTokens: maxTokens,
-                    onChunk: onChunk
-                )
-            } catch let error as LLMError where error.isRetryable && attempt < maxRetries {
-                lastError = error
-                log.warning("[LLM] Retryable error (attempt \(attempt)/\(maxRetries)): \(error.localizedDescription). Retrying...")
-                try await Task.sleep(nanoseconds: UInt64(attempt) * 1_000_000_000)  // 1s backoff
-                continue
-            }
-        }
-        throw lastError ?? LLMError.apiError("Unknown error after retries")
+        // Single attempt — retry logic lives in AppState.runLLMLoop() to avoid double-retry.
+        return try await _streamChatOnce(
+            messages: messages, tools: tools, model: model,
+            apiKey: apiKey, systemPrompt: systemPrompt,
+            temperature: temperature, maxTokens: maxTokens,
+            onChunk: onChunk
+        )
     }
 
     private func _streamChatOnce(

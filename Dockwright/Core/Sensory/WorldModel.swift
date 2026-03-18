@@ -18,6 +18,7 @@ nonisolated final class WorldModel: @unchecked Sendable {
     // Ambient loop
     private var ambientLoopRunning = false
     private var lastOCRText = ""
+    private var lastScreenshotHash: Int = 0
 
     // Services
     private let screenCapture = ScreenCaptureService.shared
@@ -298,10 +299,19 @@ nonisolated final class WorldModel: @unchecked Sendable {
             return
         }
 
-        // Screen capture + OCR
+        // Screen capture + OCR (skip OCR if screenshot unchanged)
         do {
             let path = try await screenCapture.captureScreen()
             defer { screenCapture.cleanup(path: path) }
+
+            // Quick pixel hash — skip expensive OCR if screen didn't change
+            // Downsample to tiny image and hash the raw pixels (ignores PNG metadata)
+            let currentHash = Self.quickImageHash(path: path)
+            if currentHash != 0 && currentHash == lastScreenshotHash {
+                consecutiveScreenCaptureFailures = 0
+                return // Screen visually identical — skip OCR entirely
+            }
+            lastScreenshotHash = currentHash
 
             let ocrText = try await ocr.recognizeText(imagePath: path)
             consecutiveScreenCaptureFailures = 0 // Reset on success
@@ -327,6 +337,31 @@ nonisolated final class WorldModel: @unchecked Sendable {
 
     /// Jaccard distance between two texts (word-level).
     /// Returns true if distance > threshold (meaning content changed significantly).
+    /// Fast perceptual hash: downsample screenshot to 16x16 grayscale and hash the pixels.
+    /// Ignores PNG metadata, cursor blink, and minor rendering differences.
+    private static func quickImageHash(path: String) -> Int {
+        guard let source = CGImageSourceCreateWithURL(URL(fileURLWithPath: path) as CFURL, nil),
+              let cgImage = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return 0 }
+
+        // Draw into tiny 16x16 grayscale bitmap
+        let size = 16
+        let colorSpace = CGColorSpaceCreateDeviceGray()
+        guard let ctx = CGContext(data: nil, width: size, height: size, bitsPerComponent: 8,
+                                  bytesPerRow: size, space: colorSpace,
+                                  bitmapInfo: CGImageAlphaInfo.none.rawValue) else { return 0 }
+        ctx.draw(cgImage, in: CGRect(x: 0, y: 0, width: size, height: size))
+        guard let data = ctx.data else { return 0 }
+
+        // Hash the 256 bytes of pixel data
+        let pixels = data.assumingMemoryBound(to: UInt8.self)
+        var hash = 0
+        for i in 0..<(size * size) {
+            // Quantize to reduce noise (divide by 8 = ignore bottom 3 bits)
+            hash = hash &* 31 &+ Int(pixels[i] / 8)
+        }
+        return hash
+    }
+
     private func hasSignificantChange(old: String, new: String, threshold: Double) -> Bool {
         if old.isEmpty { return !new.isEmpty }
         if new.isEmpty { return true }

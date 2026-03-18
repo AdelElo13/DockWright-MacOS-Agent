@@ -100,6 +100,54 @@ nonisolated struct ChatMessage: Identifiable, Codable, Sendable {
         self.toolOutputs = []
         self.thinkingContent = ""
     }
+
+    /// Cleaned content for display — strips raw markdown syntax that looks ugly in plain Text.
+    /// Only cleans assistant messages that are done streaming.
+    var displayContent: String {
+        guard role == .assistant, !isStreaming else { return content }
+        return Self.cleanMarkdown(content)
+    }
+
+    /// Strip raw markdown syntax, keep bold/italic (LocalizedStringKey handles those).
+    static func cleanMarkdown(_ text: String) -> String {
+        var cleaned: [String] = []
+
+        for line in text.components(separatedBy: "\n") {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+
+            // Remove table separator rows: |---|---|
+            if trimmed.hasPrefix("|") && trimmed.contains("---") { continue }
+
+            // Clean table rows: | col1 | col2 | → col1    col2
+            if trimmed.hasPrefix("|") && trimmed.hasSuffix("|") && trimmed.count > 2 {
+                let cells = trimmed.dropFirst().dropLast()
+                    .components(separatedBy: "|")
+                    .map { $0.trimmingCharacters(in: .whitespaces) }
+                cleaned.append(cells.joined(separator: "    "))
+                continue
+            }
+
+            // Remove horizontal rules
+            if trimmed == "---" || trimmed == "***" || trimmed == "___" { continue }
+
+            var result = line
+
+            // Headers: ## Title → **Title**
+            if let range = result.range(of: #"^#{1,6}\s+"#, options: .regularExpression) {
+                result = "**\(result[range.upperBound...])**"
+            }
+
+            // Bullets: - item → • item
+            if let range = result.range(of: #"^(\s*)[-*]\s+"#, options: .regularExpression) {
+                let indent = result[range].prefix(while: { $0 == " " })
+                result = "\(indent)• \(result[range.upperBound...])"
+            }
+
+            cleaned.append(result)
+        }
+
+        return cleaned.joined(separator: "\n")
+    }
 }
 
 nonisolated enum MessageRole: String, Codable, Sendable {

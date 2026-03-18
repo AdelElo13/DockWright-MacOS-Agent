@@ -80,13 +80,19 @@ struct MessageBubble: View {
                 .tint(.secondary)
             }
 
-            // Content — plain text, no bubble
+            // Content — plain Text while streaming (fast), LocalizedStringKey when done (bold/italic)
             if !message.content.isEmpty {
-                Text(LocalizedStringKey(message.content))
-                    .font(chatFont)
-                    .foregroundStyle(.primary.opacity(0.92))
-                    .textSelection(.enabled)
-                    .frame(maxWidth: DockwrightTheme.Layout.maxBubbleWidth, alignment: .leading)
+                Group {
+                    if message.isStreaming {
+                        Text(message.content)
+                    } else {
+                        Text(LocalizedStringKey(message.content))
+                    }
+                }
+                .font(chatFont)
+                .foregroundStyle(.primary.opacity(0.92))
+                .textSelection(.enabled)
+                .frame(maxWidth: DockwrightTheme.Layout.maxBubbleWidth, alignment: .leading)
             }
 
             // Streaming cursor
