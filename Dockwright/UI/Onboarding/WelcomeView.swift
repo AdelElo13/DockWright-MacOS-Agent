@@ -16,21 +16,12 @@ struct WelcomeView: View {
             Spacer()
 
             // Logo
-            ZStack {
-                Circle()
-                    .fill(DockwrightTheme.orbGradient)
-                    .frame(width: 80, height: 80)
-                    .blur(radius: 1)
-                Circle()
-                    .fill(
-                        RadialGradient(
-                            colors: [.white.opacity(0.3), .clear],
-                            center: .topLeading,
-                            startRadius: 0,
-                            endRadius: 40
-                        )
-                    )
-                    .frame(width: 64, height: 64)
+            if let img = NSImage(named: "AppIcon") {
+                Image(nsImage: img)
+                    .resizable()
+                    .frame(width: 96, height: 96)
+                    .clipShape(RoundedRectangle(cornerRadius: 20))
+                    .shadow(color: DockwrightTheme.primary.opacity(0.3), radius: 20, y: 4)
             }
 
             VStack(spacing: DockwrightTheme.Spacing.sm) {
@@ -45,20 +36,25 @@ struct WelcomeView: View {
 
             // OAuth Sign-in Buttons
             VStack(spacing: DockwrightTheme.Spacing.md) {
-                Text("Sign in to get started")
-                    .font(DockwrightTheme.Typography.body)
-                    .foregroundStyle(.secondary)
+                Text("Sign in with your account — no API key needed")
+                    .font(DockwrightTheme.Typography.caption)
+                    .foregroundStyle(.tertiary)
 
                 Button {
                     authManager.signInWithClaude()
                 } label: {
-                    HStack(spacing: DockwrightTheme.Spacing.sm) {
-                        Image(systemName: "person.crop.circle.badge.checkmark")
-                            .font(.system(size: 14))
-                        Text("Sign in with Claude")
-                            .font(DockwrightTheme.Typography.bodyLargeMedium)
+                    HStack(spacing: DockwrightTheme.Spacing.md) {
+                        Image(systemName: "shield.checkered")
+                            .font(.system(size: 16))
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text("Continue with Anthropic")
+                                .font(DockwrightTheme.Typography.bodyLargeMedium)
+                            Text("Claude OAuth — recommended")
+                                .font(.system(size: 10))
+                                .foregroundStyle(.white.opacity(0.6))
+                        }
                     }
-                    .frame(width: 240, height: 36)
+                    .frame(width: 280, height: 44)
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(DockwrightTheme.primary)
@@ -67,17 +63,23 @@ struct WelcomeView: View {
                 Button {
                     authManager.signInWithOpenAI()
                 } label: {
-                    HStack(spacing: DockwrightTheme.Spacing.sm) {
+                    HStack(spacing: DockwrightTheme.Spacing.md) {
                         if authManager.isSigningIn {
                             ProgressView()
                                 .controlSize(.small)
+                        } else {
+                            Image(systemName: "shield.checkered")
+                                .font(.system(size: 16))
                         }
-                        Image(systemName: "person.crop.circle.badge.checkmark")
-                            .font(.system(size: 14))
-                        Text("Sign in with OpenAI")
-                            .font(DockwrightTheme.Typography.bodyLargeMedium)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text("Continue with OpenAI")
+                                .font(DockwrightTheme.Typography.bodyLargeMedium)
+                            Text("GPT OAuth")
+                                .font(.system(size: 10))
+                                .foregroundStyle(.secondary)
+                        }
                     }
-                    .frame(width: 240, height: 36)
+                    .frame(width: 280, height: 44)
                 }
                 .buttonStyle(.bordered)
                 .disabled(authManager.isSigningIn)
@@ -119,12 +121,13 @@ struct WelcomeView: View {
             // Divider
             HStack {
                 Rectangle().fill(Color.white.opacity(0.1)).frame(height: 1)
-                Text("or enter an API key")
+                Text("or use an API key")
                     .font(DockwrightTheme.Typography.caption)
                     .foregroundStyle(.quaternary)
+                    .fixedSize()
                 Rectangle().fill(Color.white.opacity(0.1)).frame(height: 1)
             }
-            .frame(maxWidth: 400)
+            .frame(maxWidth: 320)
 
             // Manual API key entry — any provider
             VStack(spacing: DockwrightTheme.Spacing.md) {
