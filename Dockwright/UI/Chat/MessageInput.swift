@@ -417,6 +417,7 @@ struct MessageInput: View {
                     if canSend {
                         let msg = text.trimmingCharacters(in: .whitespacesAndNewlines)
                         text = ""
+                        pendingImageCount = 0
                         showSlashCommands?.wrappedValue = false
                         onSend(msg)
                     }
@@ -445,6 +446,7 @@ struct MessageInput: View {
             if canSend {
                 let msg = text.trimmingCharacters(in: .whitespacesAndNewlines)
                 text = ""
+                pendingImageCount = 0
                 showSlashCommands?.wrappedValue = false
                 onSend(msg)
             } else if isProcessing {
