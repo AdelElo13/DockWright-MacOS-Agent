@@ -54,6 +54,10 @@
 </tr>
 </table>
 
+<p align="center">
+  <img src="assets/screenshot-chat.png" width="720" alt="Dockwright in action">
+</p>
+
 ---
 
 ## What is Dockwright?
