@@ -27,6 +27,10 @@
   <a href="https://dockwright.com"><img src="https://img.shields.io/badge/Web-dockwright.com-0891B2?style=flat-square&logo=safari&logoColor=white" alt="Website"></a>
 </p>
 
+<p align="center">
+  <a href="https://github.com/AdelElo13/DockWright-MacOS-Agent/releases/download/v1.0.0/Dockwright-1.0.dmg"><img src="https://img.shields.io/badge/Download-Dockwright%201.0-48C7BE?style=for-the-badge&logo=apple&logoColor=white" alt="Download"></a>
+</p>
+
 ---
 
 ## What is Dockwright?
@@ -53,7 +57,7 @@ Shell commands, file operations, web search, clipboard, system info, Apple Remin
 Direct control of any macOS app via the Accessibility API. Click buttons, type text, press keyboard shortcuts, read UI elements — no pixel-guessing. Live AXObserver event stream monitors the frontmost app in real time, building a semantic model the AI can act on instantly.
 
 ### Voice
-Hands-free operation with Apple Speech Recognition. Tap the mic, speak naturally, get a spoken response. Silence detection, continuous mode, and session coordination to prevent audio conflicts.
+Hands-free operation with Apple Speech Recognition. Say **"Hey Doc"** to activate — no button needed. Speak naturally, get a spoken response. Wake word detection via SFSpeechRecognizer (no external dependencies), silence detection, typewriter-style streaming, TTS with automatic text cleanup (strips markdown, emojis, whitespace), and session coordination to prevent audio conflicts. Supports macOS system TTS and ElevenLabs.
 
 ### Screen Awareness
 A 15-second ambient loop captures your screen, runs OCR, and feeds context to the AI. It knows which app is active, what you're reading, and which browser tabs are open — across Safari, Chrome, Firefox, Edge, Arc, and Brave.
@@ -65,7 +69,7 @@ Read conversations, search messages, and send texts — directly from the AI. Re
 Full cron engine with natural language. "Remind me in 2 minutes to stretch" just works. Recurring jobs, one-shot reminders, missed-job catch-up on relaunch, and native macOS notifications.
 
 ### Agent Mode
-Give Dockwright a goal and it will plan, execute, self-correct, and report progress — up to 50 tool calls per task with full cancellation support. Token budgets auto-scale per model (800K for Opus, 160K for Sonnet).
+Give Dockwright a goal and it will plan, execute, self-correct, and report progress — up to 50 tool calls per task with full cancellation support. Token budgets auto-scale per model (800K for Opus, 160K for Sonnet). Smooth typewriter-style streaming at 30Hz — no stutter, no lag.
 
 ### Memory
 Auto-extracts facts from conversations and recalls them when relevant. Ranked retrieval (importance × relevance), automatic consolidation of stale/duplicate facts, and a **PoisonGuard** that blocks prompt injection attempts and credential leaks from being stored. Remembers tool failures and adapts — never bans a tool, just learns to call it smarter. SQLite + FTS5 backed.
@@ -77,7 +81,10 @@ Drop a Markdown file in `~/.dockwright/skills/` and Dockwright learns new abilit
 Set your name, bio, avatar, and shipping address in Settings → Profile. Dockwright uses your name in conversations, shows your picture in chat, and auto-fills checkout forms when shopping on your behalf. You can also rename your assistant — call it whatever you want.
 
 ### Menu Bar Panel
-Floating chat accessible from the macOS menu bar. Pin it to stay on top while Dockwright works in Safari or other apps. Resize between compact and expanded. Same conversation, same tools — just a different window.
+Floating chat accessible from the macOS menu bar with the Dockwright helm icon. Pin it to stay on top (floating window level) while Dockwright works in Safari or other apps. Resize between compact and expanded. Same AppState, same conversation, same tools — just a different window.
+
+### Conversation Pinning
+Right-click any conversation in the sidebar to pin it. Pinned conversations stay at the top in their own "Pinned" group, never buried by newer chats.
 
 ### Integrations
 - Telegram bot — chat with Dockwright from your phone
@@ -91,12 +98,17 @@ Floating chat accessible from the macOS menu bar. Pin it to stay on top while Do
 
 ---
 
-## Getting Started
+## Install
 
+**Download:** [Dockwright-1.0.dmg](https://github.com/AdelElo13/DockWright-MacOS-Agent/releases/download/v1.0.0/Dockwright-1.0.dmg) — open the DMG, drag to Applications, launch.
+
+**Build from source:**
 1. Open **Dockwright.xcodeproj** in Xcode 16+
 2. **Cmd+R** to build and run
-3. Sign in with Claude or paste an API key
-4. Start with: *"What's on my screen?"* or *"Remind me in 1 minute to stretch"*
+
+**First launch:**
+1. Sign in with Claude OAuth or paste an API key
+2. Start with: *"What's on my screen?"* or *"Hey Doc, what's in my browser?"*
 
 ### Requirements
 
