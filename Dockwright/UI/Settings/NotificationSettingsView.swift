@@ -7,6 +7,7 @@ struct NotificationSettingsView: View {
     private var prefs: AppPreferences { AppPreferences.shared }
 
     @State private var hasTelegram = false
+    @State private var hasWhatsApp = false
     @State private var hasDiscord = false
 
     var body: some View {
@@ -50,6 +51,14 @@ struct NotificationSettingsView: View {
                               ),
                               configured: hasTelegram)
 
+                channelToggle("WhatsApp",
+                              icon: "phone.fill",
+                              isOn: Binding(
+                                get: { UserDefaults.standard.bool(forKey: "useWhatsAppNotifications") },
+                                set: { UserDefaults.standard.set($0, forKey: "useWhatsAppNotifications") }
+                              ),
+                              configured: hasWhatsApp)
+
                 channelToggle("Discord",
                               icon: "bubble.left.and.bubble.right.fill",
                               isOn: Binding(
@@ -58,8 +67,8 @@ struct NotificationSettingsView: View {
                               ),
                               configured: hasDiscord)
 
-                if !hasTelegram && !hasDiscord {
-                    Text("Configure Telegram or Discord in the API Keys tab to enable remote notifications.")
+                if !hasTelegram && !hasWhatsApp && !hasDiscord {
+                    Text("Configure Telegram, WhatsApp, or Discord in the Integrations tab to enable remote notifications.")
                         .font(.caption)
                         .foregroundStyle(.orange)
                 }
@@ -126,6 +135,8 @@ struct NotificationSettingsView: View {
     private func checkChannelStatus() {
         hasTelegram = KeychainHelper.exists(key: "telegram_bot_token") &&
             !(UserDefaults.standard.string(forKey: "telegram_chat_id") ?? "").isEmpty
+        hasWhatsApp = KeychainHelper.exists(key: "whatsapp_access_token") &&
+            !(UserDefaults.standard.string(forKey: "whatsapp_phone_number_id") ?? "").isEmpty
         hasDiscord = !(UserDefaults.standard.string(forKey: "discord_webhook_url") ?? "").isEmpty
     }
 }

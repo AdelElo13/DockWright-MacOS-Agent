@@ -409,6 +409,15 @@ final class AppState {
         Active scheduled jobs: \(cronRunner.activeJobsSummary())
         """
 
+        // Inject user profile if set
+        let userName = prefs.userName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let userBio = prefs.userBio.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !userName.isEmpty || !userBio.isEmpty {
+            prompt += "\n\nUser profile:"
+            if !userName.isEmpty { prompt += "\n- Name: \(userName)" }
+            if !userBio.isEmpty { prompt += "\n- About: \(userBio)" }
+        }
+
         // Inject live UI state from ProcessSymbiosis
         let symbContext = ProcessSymbiosis.shared.contextString()
         if !symbContext.isEmpty {

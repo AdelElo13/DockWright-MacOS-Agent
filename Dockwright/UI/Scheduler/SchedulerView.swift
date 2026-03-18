@@ -74,6 +74,25 @@ struct SchedulerView: View {
             Spacer()
 
             Button {
+                appState?.showScheduler = false
+                Task {
+                    await appState?.sendMessage("Help me set up a scheduled automation or recurring reminder")
+                }
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "brain")
+                    Text("Ask Dockwright")
+                }
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(Color.white.opacity(0.1))
+                .clipShape(Capsule())
+            }
+            .buttonStyle(.plain)
+
+            Button {
                 editingJob = nil
                 isCreatingNew = true
             } label: {
@@ -118,44 +137,9 @@ struct SchedulerView: View {
             Text("No cron jobs yet")
                 .font(DockwrightTheme.Typography.body)
                 .foregroundStyle(.secondary)
-
-            HStack(spacing: DockwrightTheme.Spacing.md) {
-                Button {
-                    isCreatingNew = true
-                } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: "plus.circle.fill")
-                        Text("Create Job")
-                    }
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-                    .background(DockwrightTheme.primary.opacity(0.8))
-                    .clipShape(Capsule())
-                }
-                .buttonStyle(.plain)
-
-                Button {
-                    appState?.showScheduler = false
-                    Task {
-                        await appState?.sendMessage("Help me set up a scheduled automation or recurring reminder")
-                    }
-                } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: "brain")
-                        Text("Ask Dockwright")
-                    }
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-                    .background(Color.white.opacity(0.1))
-                    .clipShape(Capsule())
-                }
-                .buttonStyle(.plain)
-            }
-
+            Text("Use the buttons above to create a job or ask Dockwright")
+                .font(DockwrightTheme.Typography.caption)
+                .foregroundStyle(.tertiary)
             Spacer()
         }
         .frame(maxWidth: .infinity)

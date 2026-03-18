@@ -199,7 +199,11 @@ struct ChatView: View {
             .padding(.bottom, DockwrightTheme.Spacing.md)
         }
         .background(DockwrightTheme.Surface.canvas)
-        // DEBUG: .onDrop, .overlay, .onChange temporarily removed to test scroll freeze
+        .onChange(of: appState.voiceLiveText) { _, newText in
+            if appState.voiceMode {
+                promptText = newText
+            }
+        }
     }
 
     // MARK: - Message List

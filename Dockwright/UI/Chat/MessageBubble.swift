@@ -31,7 +31,7 @@ struct MessageBubble: View {
     // MARK: - User Bubble (right-aligned dark pill)
 
     private var userBubble: some View {
-        HStack {
+        HStack(alignment: .top, spacing: 8) {
             Spacer(minLength: 80)
 
             Text(message.content)
@@ -47,6 +47,8 @@ struct MessageBubble: View {
                         Label("Copy", systemImage: "doc.on.doc")
                     }
                 }
+
+            userAvatar
         }
         .padding(.horizontal, DockwrightTheme.Spacing.xl)
         .padding(.vertical, DockwrightTheme.Spacing.sm)
@@ -55,6 +57,8 @@ struct MessageBubble: View {
     // MARK: - Assistant Bubble (left-aligned, no background)
 
     private var assistantBubble: some View {
+        HStack(alignment: .top, spacing: 8) {
+        assistantAvatar
         VStack(alignment: .leading, spacing: DockwrightTheme.Spacing.sm) {
             // Tool outputs
             if !message.toolOutputs.isEmpty {
@@ -121,6 +125,7 @@ struct MessageBubble: View {
                 .transition(.opacity)
             }
         }
+        } // HStack
         .padding(.horizontal, DockwrightTheme.Spacing.xl)
         .padding(.trailing, 80)
         .padding(.vertical, DockwrightTheme.Spacing.sm)
@@ -187,6 +192,47 @@ struct MessageBubble: View {
         if interval < 3600 { return "\(Int(interval / 60))m ago" }
         if interval < 86400 { return "\(Int(interval / 3600))h ago" }
         return "\(Int(interval / 86400))d ago"
+    }
+
+    // MARK: - Avatars
+
+    private var userAvatar: some View {
+        Group {
+            if let img = ProfileSettingsView.loadUserAvatar() {
+                Image(nsImage: img)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: 26, height: 26)
+                    .clipShape(Circle())
+            } else {
+                let name = AppPreferences.shared.userName
+                if name.isEmpty {
+                    Circle()
+                        .fill(DockwrightTheme.primary.opacity(0.15))
+                        .frame(width: 26, height: 26)
+                        .overlay {
+                            Image(systemName: "person.fill")
+                                .font(.system(size: 12))
+                                .foregroundStyle(DockwrightTheme.primary.opacity(0.5))
+                        }
+                } else {
+                    let parts = name.split(separator: " ")
+                    let initials = "\(parts.first?.prefix(1) ?? "")\(parts.count > 1 ? parts.last!.prefix(1) : "")".uppercased()
+                    Circle()
+                        .fill(DockwrightTheme.primary.opacity(0.2))
+                        .frame(width: 26, height: 26)
+                        .overlay {
+                            Text(initials)
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(DockwrightTheme.primary)
+                        }
+                }
+            }
+        }
+    }
+
+    private var assistantAvatar: some View {
+        ProfileSettingsView.dockwrightAvatarView(size: 26)
     }
 }
 

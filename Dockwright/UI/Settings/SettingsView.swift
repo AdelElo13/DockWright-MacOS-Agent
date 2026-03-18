@@ -3,8 +3,9 @@ import SwiftUI
 // MARK: - Settings Tab Enum
 
 private enum SettingsTab: String, CaseIterable, Identifiable {
+    case profile = "Profile"
     case general = "General"
-    case apiKeys = "API Keys"
+    case apiKeys = "Integrations"
     case models = "Models"
     case voice = "Voice"
     case agent = "Agent"
@@ -17,8 +18,9 @@ private enum SettingsTab: String, CaseIterable, Identifiable {
 
     var icon: String {
         switch self {
+        case .profile: "person.crop.circle.fill"
         case .general: "gearshape"
-        case .apiKeys: "key.fill"
+        case .apiKeys: "puzzlepiece.extension.fill"
         case .models: "cpu"
         case .voice: "mic.fill"
         case .agent: "brain"
@@ -66,6 +68,7 @@ struct SettingsView: View {
                 // Sidebar navigation
                 List(selection: $selectedTab) {
                     Section("General") {
+                        settingsTabRow(.profile)
                         settingsTabRow(.general)
                         settingsTabRow(.apiKeys)
                         settingsTabRow(.models)
@@ -91,7 +94,8 @@ struct SettingsView: View {
 
                 // Content area — each tab view owns its own scrolling via Form(.grouped)
                 Group {
-                    switch selectedTab ?? .general {
+                    switch selectedTab ?? .profile {
+                    case .profile: ProfileSettingsView()
                     case .general: GeneralSettingsView()
                     case .apiKeys:
                         if let mgr = appState?.authManager {
@@ -391,7 +395,7 @@ struct VoiceSettingsView: View {
                     .onAppear { TTSService.shared.fetchElevenLabsVoices() }
 
                     if !KeychainHelper.exists(key: "elevenlabs_api_key") {
-                        Text("Add ElevenLabs API key in API Keys tab")
+                        Text("Add ElevenLabs API key in Integrations tab")
                             .font(DockwrightTheme.Typography.caption)
                             .foregroundStyle(.orange)
                     }

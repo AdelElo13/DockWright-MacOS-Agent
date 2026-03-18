@@ -50,6 +50,44 @@ struct GoalsView: View {
                     .foregroundStyle(.secondary)
             }
             Spacer()
+
+            Button {
+                appState.showGoals = false
+                Task {
+                    await appState.sendMessage("Help me define a goal with milestones and daily actions")
+                }
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "brain")
+                    Text("Ask Dockwright")
+                }
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(Color.white.opacity(0.1))
+                .clipShape(Capsule())
+            }
+            .buttonStyle(.plain)
+
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    showAddGoal = true
+                }
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "plus.circle.fill")
+                    Text("Add Goal")
+                }
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(DockwrightTheme.primary.opacity(0.8))
+                .clipShape(Capsule())
+            }
+            .buttonStyle(.plain)
+
             Button {
                 appState.showGoals = false
             } label: {
@@ -90,48 +128,9 @@ struct GoalsView: View {
                 }
             }
 
-            // Add Goal button / inline form
+            // Add Goal inline form (triggered from header button)
             if showAddGoal {
                 addGoalForm
-            } else {
-                HStack(spacing: DockwrightTheme.Spacing.sm) {
-                    Button {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            showAddGoal = true
-                        }
-                    } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: "plus.circle.fill")
-                            Text("Add Goal")
-                        }
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .background(DockwrightTheme.accent.opacity(0.8))
-                        .clipShape(Capsule())
-                    }
-                    .buttonStyle(.plain)
-
-                    Button {
-                        appState.showGoals = false
-                        Task {
-                            await appState.sendMessage("Help me set a new goal and break it down into milestones")
-                        }
-                    } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: "brain")
-                            Text("Ask Dockwright")
-                        }
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .background(Color.white.opacity(0.1))
-                        .clipShape(Capsule())
-                    }
-                    .buttonStyle(.plain)
-                }
             }
         }
     }

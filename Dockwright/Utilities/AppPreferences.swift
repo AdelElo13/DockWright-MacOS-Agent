@@ -10,6 +10,15 @@ final class AppPreferences {
 
     private let defaults = UserDefaults.standard
 
+    // MARK: - Profile
+
+    var userName: String {
+        didSet { defaults.set(userName, forKey: "userName") }
+    }
+    var userBio: String {
+        didSet { defaults.set(userBio, forKey: "userBio") }
+    }
+
     // MARK: - General
 
     var appearance: String {
@@ -113,6 +122,10 @@ final class AppPreferences {
 
     private init() {
         let d = UserDefaults.standard
+
+        // Profile
+        userName = d.string(forKey: "userName") ?? ""
+        userBio = d.string(forKey: "userBio") ?? ""
 
         // General
         appearance = d.string(forKey: "appearance") ?? "system"
