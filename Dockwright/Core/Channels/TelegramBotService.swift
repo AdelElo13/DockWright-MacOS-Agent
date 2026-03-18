@@ -433,8 +433,8 @@ final class TelegramBotService {
         activeTasks[chatId] = Task { [weak self] in
             guard let self else { return }
             defer { Task { @MainActor [weak self] in self?.activeTasks.removeValue(forKey: chatId) } }
-            if mediaType == .photo, let fid = fileId {
-                await self.processPhotoMessage(chatId: chatId, text: userText, fileId: fid)
+            if mediaType != .text, let fid = fileId {
+                await self.processMediaMessage(chatId: chatId, text: userText, mediaType: mediaType, fileId: fid, fileName: update.fileName)
             } else {
                 await self.processMessage(chatId: chatId, text: userText)
             }
@@ -566,38 +566,96 @@ final class TelegramBotService {
         return localURL
     }
 
-    /// Process a photo message: download → base64 → send to LLM with images
-    private func processPhotoMessage(chatId: String, text: String, fileId: String) async {
+    /// Process any media message: download → analyze based on type
+    private func processMediaMessage(chatId: String, text: String, mediaType: TGMediaType, fileId: String, fileName: String?) async {
         guard !Task.isCancelled else { return }
         let typingTask = startTypingLoop(chatId: chatId)
-        _ = await sendHTMLMessage(chatId: chatId, html: "📥 <b>Downloading image...</b>")
+
+        let label: String
+        switch mediaType {
+        case .photo: label = "image"
+        case .document: label = "document"
+        case .voice: label = "voice message"
+        case .audio: label = "audio"
+        case .video: label = "video"
+        case .text: label = "file"
+        }
+        _ = await sendHTMLMessage(chatId: chatId, html: "📥 <b>Downloading \(label)...</b>")
 
         guard let localURL = await downloadTelegramFile(fileId: fileId) else {
             typingTask.cancel()
-            _ = await sendHTMLMessage(chatId: chatId, html: "❌ Could not download image")
+            _ = await sendHTMLMessage(chatId: chatId, html: "❌ Could not download \(label)")
             return
         }
-
-        // Convert to base64 ImageContent
-        guard let imageData = try? Data(contentsOf: localURL) else {
-            typingTask.cancel()
-            _ = await sendHTMLMessage(chatId: chatId, html: "❌ Could not read image data")
-            return
-        }
-        let base64 = imageData.base64EncodedString()
-        let ext = localURL.pathExtension.lowercased()
-        let mediaType = ext == "png" ? "image/png" : ext == "gif" ? "image/gif" : "image/jpeg"
-        let imageContent = ImageContent(type: "base64", mediaType: mediaType, data: base64)
-
-        // Clean up temp file
-        try? FileManager.default.removeItem(at: localURL)
-
-        let prompt = text.isEmpty ? "What's in this image?" : text
 
         typingTask.cancel()
 
-        // Process via the normal LLM flow with images attached
-        await processMessage(chatId: chatId, text: prompt, images: [imageContent])
+        // Route based on media type
+        switch mediaType {
+        case .photo:
+            // Image → base64 → LLM vision
+            guard let imageData = try? Data(contentsOf: localURL) else {
+                _ = await sendHTMLMessage(chatId: chatId, html: "❌ Could not read image data")
+                return
+            }
+            let base64 = imageData.base64EncodedString()
+            let ext = localURL.pathExtension.lowercased()
+            let mime = ext == "png" ? "image/png" : ext == "gif" ? "image/gif" : "image/jpeg"
+            let imageContent = ImageContent(type: "base64", mediaType: mime, data: base64)
+            try? FileManager.default.removeItem(at: localURL)
+            let prompt = text.isEmpty ? "What's in this image?" : text
+            await processMessage(chatId: chatId, text: prompt, images: [imageContent])
+
+        case .document:
+            // Document → read content as text if possible, otherwise pass path to LLM
+            let ext = localURL.pathExtension.lowercased()
+            var fileContent: String?
+            if ["txt", "md", "json", "csv", "xml", "html", "swift", "py", "js", "ts", "sh", "yaml", "yml", "toml", "log", "ini", "cfg"].contains(ext) {
+                fileContent = try? String(contentsOf: localURL, encoding: .utf8)
+            }
+            let prompt: String
+            if let content = fileContent {
+                let truncated = String(content.prefix(50_000))
+                prompt = text.isEmpty
+                    ? "Analyze this file (\(fileName ?? localURL.lastPathComponent)):\n\n\(truncated)"
+                    : "\(text)\n\nFile (\(fileName ?? localURL.lastPathComponent)):\n\n\(truncated)"
+            } else {
+                // Binary file — save to dockwright dir and tell LLM the path
+                let destDir = NSHomeDirectory() + "/.dockwright/downloads"
+                try? FileManager.default.createDirectory(atPath: destDir, withIntermediateDirectories: true)
+                let destPath = destDir + "/" + (fileName ?? localURL.lastPathComponent)
+                try? FileManager.default.moveItem(at: localURL, to: URL(fileURLWithPath: destPath))
+                prompt = text.isEmpty
+                    ? "The user sent a file: \(fileName ?? localURL.lastPathComponent). It's saved at \(destPath). Analyze or process it as appropriate."
+                    : "\(text)\n\nFile saved at: \(destPath)"
+            }
+            try? FileManager.default.removeItem(at: localURL)
+            await processMessage(chatId: chatId, text: prompt)
+
+        case .voice, .audio:
+            // Voice/audio → save to dockwright dir, tell LLM to transcribe
+            let destDir = NSHomeDirectory() + "/.dockwright/downloads"
+            try? FileManager.default.createDirectory(atPath: destDir, withIntermediateDirectories: true)
+            let destPath = destDir + "/" + (fileName ?? localURL.lastPathComponent)
+            try? FileManager.default.moveItem(at: localURL, to: URL(fileURLWithPath: destPath))
+            let prompt = text.isEmpty
+                ? "The user sent a voice message. It's saved at \(destPath). Transcribe it and respond to the content."
+                : "\(text)\n\nVoice/audio file at: \(destPath)"
+            await processMessage(chatId: chatId, text: prompt)
+
+        case .video:
+            let destDir = NSHomeDirectory() + "/.dockwright/downloads"
+            try? FileManager.default.createDirectory(atPath: destDir, withIntermediateDirectories: true)
+            let destPath = destDir + "/" + (fileName ?? localURL.lastPathComponent)
+            try? FileManager.default.moveItem(at: localURL, to: URL(fileURLWithPath: destPath))
+            let prompt = text.isEmpty
+                ? "The user sent a video. It's saved at \(destPath). Analyze or describe it."
+                : "\(text)\n\nVideo file at: \(destPath)"
+            await processMessage(chatId: chatId, text: prompt)
+
+        case .text:
+            break // Already handled by normal flow
+        }
     }
 
     // MARK: - Process Message (LLM + Tools + Progress)

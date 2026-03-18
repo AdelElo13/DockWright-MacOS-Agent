@@ -235,11 +235,16 @@ final class WhatsAppBotService {
             }
 
             var text = ""
+            var mediaId: String?
+            var mediaType: String?
             switch type {
             case "text":
                 text = (msg["text"] as? [String: Any])?["body"] as? String ?? ""
             case "image", "video", "document", "audio":
-                text = (msg[type] as? [String: Any])?["caption"] as? String ?? "[\(type) received]"
+                let mediaObj = msg[type] as? [String: Any]
+                text = mediaObj?["caption"] as? String ?? ""
+                mediaId = mediaObj?["id"] as? String
+                mediaType = type
             case "location":
                 if let loc = msg["location"] as? [String: Any],
                    let lat = loc["latitude"], let lon = loc["longitude"] {
@@ -249,7 +254,7 @@ final class WhatsAppBotService {
                 text = "[\(type) message received]"
             }
 
-            guard !text.isEmpty else { continue }
+            guard !text.isEmpty || mediaId != nil else { continue }
 
             // Cancel existing task for this sender
             if let existing = activeTasks[from] {
@@ -260,18 +265,84 @@ final class WhatsAppBotService {
             lastUserTextPerSender[from] = text
             let sender = from
             let messageText = text
+            let capturedMediaId = mediaId
+            let capturedMediaType = mediaType
 
             activeTasks[sender] = Task { [weak self] in
                 guard let self else { return }
                 defer { Task { @MainActor [weak self] in self?.activeTasks.removeValue(forKey: sender) } }
-                await self.processMessage(from: sender, text: messageText)
+                if let mid = capturedMediaId, let mtype = capturedMediaType {
+                    await self.processMediaMessage(from: sender, text: messageText, mediaId: mid, mediaType: mtype)
+                } else {
+                    await self.processMessage(from: sender, text: messageText)
+                }
             }
+        }
+    }
+
+    // MARK: - Media Processing
+
+    /// Download WhatsApp media by media ID via Graph API
+    private func downloadWhatsAppMedia(mediaId: String) async -> URL? {
+        guard !accessToken.isEmpty else { return nil }
+        let token = accessToken
+        // Step 1: Get media URL
+        guard let infoURL = URL(string: "https://graph.facebook.com/v18.0/\(mediaId)") else { return nil }
+        var infoReq = URLRequest(url: infoURL)
+        infoReq.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        guard let (data, _) = try? await URLSession.shared.data(for: infoReq),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let mediaURL = json["url"] as? String,
+              let dlURL = URL(string: mediaURL) else { return nil }
+        // Step 2: Download actual file
+        var dlReq = URLRequest(url: dlURL)
+        dlReq.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        guard let (fileData, _) = try? await URLSession.shared.data(for: dlReq) else { return nil }
+        let ext = (json["mime_type"] as? String)?.components(separatedBy: "/").last ?? "bin"
+        let localURL = FileManager.default.temporaryDirectory.appendingPathComponent("wa_\(UUID().uuidString).\(ext)")
+        try? fileData.write(to: localURL)
+        return localURL
+    }
+
+    /// Process media from WhatsApp — images go to vision, files go to tools
+    private func processMediaMessage(from: String, text: String, mediaId: String, mediaType: String) async {
+        guard !Task.isCancelled else { return }
+        _ = await sendTextMessage(to: from, text: "📥 Downloading \(mediaType)...")
+
+        guard let localURL = await downloadWhatsAppMedia(mediaId: mediaId) else {
+            _ = await sendTextMessage(to: from, text: "❌ Could not download \(mediaType)")
+            return
+        }
+
+        if mediaType == "image" {
+            // Image → base64 → LLM vision
+            guard let imageData = try? Data(contentsOf: localURL) else {
+                _ = await sendTextMessage(to: from, text: "❌ Could not read image")
+                return
+            }
+            let base64 = imageData.base64EncodedString()
+            let ext = localURL.pathExtension.lowercased()
+            let mime = ext == "png" ? "image/png" : ext == "gif" ? "image/gif" : "image/jpeg"
+            let imageContent = ImageContent(type: "base64", mediaType: mime, data: base64)
+            try? FileManager.default.removeItem(at: localURL)
+            let prompt = text.isEmpty ? "What's in this image?" : text
+            await processMessage(from: from, text: prompt, images: [imageContent])
+        } else {
+            // Document/audio/video → save and tell LLM the path
+            let destDir = NSHomeDirectory() + "/.dockwright/downloads"
+            try? FileManager.default.createDirectory(atPath: destDir, withIntermediateDirectories: true)
+            let destPath = destDir + "/" + localURL.lastPathComponent
+            try? FileManager.default.moveItem(at: localURL, to: URL(fileURLWithPath: destPath))
+            let prompt = text.isEmpty
+                ? "The user sent a \(mediaType). It's saved at \(destPath). Analyze or process it."
+                : "\(text)\n\nFile saved at: \(destPath)"
+            await processMessage(from: from, text: prompt)
         }
     }
 
     // MARK: - Process Message
 
-    private func processMessage(from: String, text: String) async {
+    private func processMessage(from: String, text: String, images: [ImageContent]? = nil) async {
         guard !Task.isCancelled else { return }
 
         // Send "thinking" indicator
@@ -310,7 +381,9 @@ final class WhatsAppBotService {
             systemPrompt += "\n\nIMPORTANT: Always respond in the language matching locale: \(sttLang)."
         }
 
-        var llmMessages: [LLMMessage] = [.user(text)]
+        var userMsg = LLMMessage.user(text)
+        if let imgs = images, !imgs.isEmpty { userMsg.images = imgs }
+        var llmMessages: [LLMMessage] = [userMsg]
         let llm = LLMService()
         let toolDefs = ToolRegistry.shared.anthropicToolDefinitions()
         let toolExecutor = ToolExecutor()
