@@ -41,7 +41,14 @@ struct ShellTool: Tool, Sendable {
             }
         }
         if lowered.hasPrefix("sudo ") {
-            return ToolResult("sudo commands are not allowed for safety", isError: true)
+            // Allow specific safe sudo commands
+            let allowedSudo = ["sudo pmset", "sudo systemsetup", "sudo defaults", "sudo spctl",
+                               "sudo softwareupdate", "sudo networksetup", "sudo launchctl",
+                               "sudo xcode-select", "sudo xcodebuild"]
+            let isSafe = allowedSudo.contains(where: { lowered.hasPrefix($0) })
+            if !isSafe {
+                return ToolResult("sudo commands are not allowed for safety. Allowed: pmset, systemsetup, defaults, networksetup, launchctl", isError: true)
+            }
         }
 
         let workingDir = arguments["working_directory"] as? String
