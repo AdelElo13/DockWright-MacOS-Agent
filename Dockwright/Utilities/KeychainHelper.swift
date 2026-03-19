@@ -20,13 +20,13 @@ nonisolated enum KeychainHelper {
 
         guard let data = value.data(using: .utf8) else { return }
 
-        // Delete existing first
+        // Delete ALL existing entries (loop handles duplicates from re-signing)
         let deleteQuery: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: serviceName,
             kSecAttrAccount as String: key,
         ]
-        SecItemDelete(deleteQuery as CFDictionary)
+        while SecItemDelete(deleteQuery as CFDictionary) == errSecSuccess { }
 
         // Add fresh
         let addQuery: [String: Any] = [
