@@ -488,18 +488,17 @@ final class AppState {
 
         // Dynamic integrations: only mention messaging services that are configured
         var integrations: [String] = []
-        if KeychainHelper.read(key: "telegram_bot_token") != nil,
-           !(KeychainHelper.read(key: "telegram_bot_token") ?? "").isEmpty {
-            integrations.append("Telegram (use the 'telegram' tool to send messages and photos)")
+        if let t = KeychainHelper.read(key: "telegram_bot_token"), !t.isEmpty {
+            integrations.append("Telegram (bidirectional — bot receives AND sends messages. Use 'telegram' tool to send proactively)")
         }
-        if let discordToken = KeychainHelper.read(key: "discord_bot_token"), !discordToken.isEmpty {
-            integrations.append("Discord")
+        if let url = UserDefaults.standard.string(forKey: "discord_webhook_url"), !url.isEmpty {
+            integrations.append("Discord (use 'discord' tool to send messages via webhook)")
         }
-        if let whatsappToken = KeychainHelper.read(key: "whatsapp_api_token"), !whatsappToken.isEmpty {
-            integrations.append("WhatsApp")
+        if let t = KeychainHelper.read(key: "whatsapp_token"), !t.isEmpty {
+            integrations.append("WhatsApp (bidirectional — bot receives AND sends. Use 'whatsapp' tool to send proactively)")
         }
         if !integrations.isEmpty {
-            prompt += "\n\nConfigured messaging integrations: \(integrations.joined(separator: ", ")). Use them when the user asks to send messages via these platforms."
+            prompt += "\n\nConfigured messaging integrations: \(integrations.joined(separator: ", ")). Use the appropriate tool when the user asks to send messages via these platforms. Incoming messages from these services are automatically processed — you don't need tools to receive them."
         }
 
         // Language preference: use voice language setting to determine response language

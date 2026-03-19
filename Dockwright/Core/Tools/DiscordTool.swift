@@ -6,7 +6,7 @@ nonisolated private let discordToolLogger = Logger(subsystem: "com.Aatje.Dockwri
 /// LLM tool for sending messages via Discord webhook.
 nonisolated struct DiscordTool: Tool, @unchecked Sendable {
     let name = "discord"
-    let description = "Send messages to Discord via webhook. Actions: send_message (send a text or embed message)."
+    let description = "Send messages to Discord via webhook. Use this to post updates, notifications, or messages to a Discord channel. Actions: send_message (send a text or rich embed message)."
 
     nonisolated(unsafe) let parametersSchema: [String: Any] = [
         "action": [

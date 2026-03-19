@@ -7,7 +7,7 @@ nonisolated private let telegramToolLogger = Logger(subsystem: "com.Aatje.Dockwr
 /// Actions: send_message, send_photo.
 nonisolated struct TelegramTool: Tool, @unchecked Sendable {
     let name = "telegram"
-    let description = "Send messages and photos via Telegram Bot API. Actions: send_message (send a text message), send_photo (send a photo with optional caption)."
+    let description = "Send and receive messages via Telegram Bot API. The bot runs bidirectionally — incoming messages are automatically processed and replied to. Use this tool to proactively send messages or photos. Actions: send_message (send a text message), send_photo (send a photo with optional caption)."
 
     nonisolated(unsafe) let parametersSchema: [String: Any] = [
         "action": [

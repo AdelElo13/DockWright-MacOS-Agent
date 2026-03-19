@@ -6,7 +6,7 @@ nonisolated private let whatsappToolLogger = Logger(subsystem: "com.Aatje.Dockwr
 /// LLM tool for sending messages via WhatsApp Cloud API.
 nonisolated struct WhatsAppTool: Tool, @unchecked Sendable {
     let name = "whatsapp"
-    let description = "Send messages via WhatsApp. Actions: send_message (send a text message to a phone number)."
+    let description = "Send and receive messages via WhatsApp Cloud API. The bot runs bidirectionally — incoming messages are automatically processed and replied to. Use this tool to proactively send messages. Actions: send_message (send a text message to a phone number)."
 
     nonisolated(unsafe) let parametersSchema: [String: Any] = [
         "action": [
