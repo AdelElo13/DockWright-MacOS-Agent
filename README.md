@@ -146,28 +146,23 @@ Right-click any conversation in the sidebar to pin it. Pinned conversations stay
 | **AI Provider** | Anthropic, OpenAI, Google, xAI, DeepSeek, Mistral, Kimi, or Ollama |
 | **Dependencies** | None — pure Apple frameworks + system tools auto-installed via Homebrew when needed |
 
-### Optional: System Control (sudo)
+### Optional: System Control
 
-Dockwright can control system settings like sleep mode, display brightness, and power management. These require `sudo` access. To enable this, run once in Terminal:
+Dockwright can control system settings like sleep mode and power management. This requires one-time setup. Open **Terminal** (press `Cmd+Space`, type "Terminal", hit Enter) and paste:
 
+**Safe option** — only allows sleep/power control:
 ```bash
-# Allow passwordless sudo for pmset (sleep/power settings)
-sudo visudo -f /etc/sudoers.d/dockwright
+echo '%staff ALL=(ALL) NOPASSWD: /usr/bin/pmset' | sudo tee /etc/sudoers.d/dockwright
 ```
+Enter your Mac password when asked. You won't see the characters — that's normal. Press Enter.
 
-Add this line:
-```
-%staff ALL=(ALL) NOPASSWD: /usr/bin/pmset
-```
-
-For full system control (all commands without password prompt):
+**Full option** — allows Dockwright to run any system command without asking for your password:
 ```bash
-# ⚠️ Only do this if you trust Dockwright with full root access
-sudo visudo
-# Add: yourusername ALL=(ALL) NOPASSWD: ALL
+echo "$(whoami) ALL=(ALL) NOPASSWD: ALL" | sudo tee /etc/sudoers.d/dockwright
 ```
+⚠️ Only use this if you fully trust Dockwright with system access.
 
-Without this, Dockwright will ask you to run system commands manually when needed.
+Without either option, Dockwright will simply ask you to run system commands yourself.
 
 ---
 
