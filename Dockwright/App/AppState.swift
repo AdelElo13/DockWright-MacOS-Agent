@@ -292,6 +292,9 @@ final class AppState {
         tools.register(MusicTool())
         tools.register(ShortcutsTool())
         tools.register(iMessageTool())
+        tools.register(TelegramTool())
+        tools.register(WhatsAppTool())
+        tools.register(DiscordTool())
         tools.register(UIAutomationTool())
         tools.register(DecomposeTaskTool())
         tools.register(ChromeCDPTool())
@@ -482,6 +485,22 @@ final class AppState {
         - You have full access to brew, pip3, npm. Use them proactively to get the job done.
         - Think like a power user: chain tools, pipe outputs, write quick scripts. The goal is DONE, not excuses.
         """
+
+        // Dynamic integrations: only mention messaging services that are configured
+        var integrations: [String] = []
+        if KeychainHelper.read(key: "telegram_bot_token") != nil,
+           !(KeychainHelper.read(key: "telegram_bot_token") ?? "").isEmpty {
+            integrations.append("Telegram (use the 'telegram' tool to send messages and photos)")
+        }
+        if let discordToken = KeychainHelper.read(key: "discord_bot_token"), !discordToken.isEmpty {
+            integrations.append("Discord")
+        }
+        if let whatsappToken = KeychainHelper.read(key: "whatsapp_api_token"), !whatsappToken.isEmpty {
+            integrations.append("WhatsApp")
+        }
+        if !integrations.isEmpty {
+            prompt += "\n\nConfigured messaging integrations: \(integrations.joined(separator: ", ")). Use them when the user asks to send messages via these platforms."
+        }
 
         // Language preference: use voice language setting to determine response language
         let sttLang = VoiceService.effectiveLanguage

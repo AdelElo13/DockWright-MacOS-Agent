@@ -301,7 +301,12 @@ struct APIKeysView: View {
                 }
             }
             .formStyle(.grouped)
-        .onAppear { refreshStatus() }
+        .onAppear {
+            refreshStatus()
+            // Load existing tokens into fields (SecureField shows dots, not actual value)
+            telegramToken = KeychainHelper.read(key: "telegram_bot_token") ?? ""
+            telegramChatId = UserDefaults.standard.string(forKey: "telegram_chat_id") ?? ""
+        }
         .onChange(of: authManager.isClaudeSignedIn) { _, signedIn in
             if signedIn {
                 refreshStatus()
