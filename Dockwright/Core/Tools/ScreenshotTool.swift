@@ -62,6 +62,38 @@ nonisolated struct ScreenshotTool: Tool, @unchecked Sendable {
         return "\(prefix)_\(timestamp).png"
     }
 
+    /// Resize and compress screenshot to reduce token cost when sent to LLM.
+    /// Resizes to max 1024px on longest side and converts to JPEG at 70% quality.
+    /// Typically reduces a 5MB Retina PNG to ~100KB JPEG.
+    private func compressScreenshot(at path: String) {
+        guard let image = NSImage(contentsOfFile: path) else { return }
+        guard let rep = image.representations.first else { return }
+        let pixelW = CGFloat(rep.pixelsWide)
+        let pixelH = CGFloat(rep.pixelsHigh)
+
+        let maxDim: CGFloat = 1024
+        let scale = min(maxDim / pixelW, maxDim / pixelH, 1.0)
+        let newW = Int(pixelW * scale)
+        let newH = Int(pixelH * scale)
+
+        let resized = NSImage(size: NSSize(width: newW, height: newH))
+        resized.lockFocus()
+        NSGraphicsContext.current?.imageInterpolation = .high
+        image.draw(in: NSRect(x: 0, y: 0, width: newW, height: newH),
+                   from: NSRect(x: 0, y: 0, width: image.size.width, height: image.size.height),
+                   operation: .copy, fraction: 1.0)
+        resized.unlockFocus()
+
+        guard let tiffData = resized.tiffRepresentation,
+              let bitmapRep = NSBitmapImageRep(data: tiffData),
+              let jpegData = bitmapRep.representation(using: .jpeg, properties: [.compressionFactor: 0.7]) else { return }
+
+        let jpegPath = (path as NSString).deletingPathExtension + ".jpg"
+        try? jpegData.write(to: URL(fileURLWithPath: jpegPath))
+        // Remove original PNG
+        try? FileManager.default.removeItem(atPath: path)
+    }
+
     private func runProcess(_ executablePath: String, arguments: [String]) async throws -> (status: Int32, stdout: String, stderr: String) {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executablePath)
@@ -98,7 +130,10 @@ nonisolated struct ScreenshotTool: Tool, @unchecked Sendable {
             }
 
             if FileManager.default.fileExists(atPath: filePath) {
-                return ToolResult("Full screen screenshot saved to: \(filePath)")
+                compressScreenshot(at: filePath)
+                let jpegPath = (filePath as NSString).deletingPathExtension + ".jpg"
+                let finalPath = FileManager.default.fileExists(atPath: jpegPath) ? jpegPath : filePath
+                return ToolResult("Full screen screenshot saved to: \(finalPath)")
             } else {
                 return ToolResult("Screenshot command completed but file was not created.", isError: true)
             }
@@ -133,7 +168,10 @@ nonisolated struct ScreenshotTool: Tool, @unchecked Sendable {
             }
 
             if FileManager.default.fileExists(atPath: filePath) {
-                return ToolResult("Frontmost window screenshot saved to: \(filePath)")
+                compressScreenshot(at: filePath)
+                let jpegPath = (filePath as NSString).deletingPathExtension + ".jpg"
+                let finalPath = FileManager.default.fileExists(atPath: jpegPath) ? jpegPath : filePath
+                return ToolResult("Frontmost window screenshot saved to: \(finalPath)")
             } else {
                 return ToolResult("Screenshot command completed but file was not created.", isError: true)
             }
@@ -178,7 +216,10 @@ nonisolated struct ScreenshotTool: Tool, @unchecked Sendable {
             }
 
             if FileManager.default.fileExists(atPath: filePath) {
-                return ToolResult("Area screenshot saved to: \(filePath)")
+                compressScreenshot(at: filePath)
+                let jpegPath = (filePath as NSString).deletingPathExtension + ".jpg"
+                let finalPath = FileManager.default.fileExists(atPath: jpegPath) ? jpegPath : filePath
+                return ToolResult("Area screenshot saved to: \(finalPath)")
             } else {
                 return ToolResult("Area capture was cancelled by the user (no region selected).", isError: false)
             }

@@ -6,7 +6,10 @@ nonisolated struct UIAutomationTool: Tool, @unchecked Sendable {
     let name = "ui_automation"
     let description = """
     Control any macOS app's UI directly: click buttons, type text, read elements, press keyboard shortcuts. \
-    Much more reliable than AppleScript — works with every app that supports Accessibility.
+    Much more reliable than AppleScript — works with every app that supports Accessibility. \
+    IMPORTANT: For 'click' and 'find_element', you MUST provide either 'meaning' (e.g. "send button", "message input") \
+    or 'role'+'title' (e.g. role:"AXTextArea", title:"Message"). \
+    Typical workflow: 1) click with meaning:"text input field", 2) type_text with text:"your message", 3) press_key with key:"return".
     """
 
     nonisolated(unsafe) let parametersSchema: [String: Any] = [
@@ -105,7 +108,7 @@ nonisolated struct UIAutomationTool: Tool, @unchecked Sendable {
 
     private func listElements(ax: AccessibilityController, arguments: [String: Any]) async -> ToolResult {
         do {
-            let elements = try await ax.listElements(inWindow: true, maxDepth: 4)
+            let elements = try await ax.listElements(inWindow: true, maxDepth: 8)
             if elements.isEmpty { return ToolResult("No UI elements found in focused window.") }
 
             // Filter to actionable elements only (skip containers/groups)
@@ -141,7 +144,7 @@ nonisolated struct UIAutomationTool: Tool, @unchecked Sendable {
 
         // Fall back to role+title search
         guard let role = arguments["role"] as? String else {
-            return ToolResult("Provide either 'meaning' or 'role'+'title' to find an element.", isError: true)
+            return ToolResult("Missing identifier. Use meaning (e.g. meaning:\"send button\") or role+title (e.g. role:\"AXButton\", title:\"Send\").", isError: true)
         }
         let title = arguments["title"] as? String ?? ""
         let bundleID = arguments["app"] as? String
@@ -158,15 +161,65 @@ nonisolated struct UIAutomationTool: Tool, @unchecked Sendable {
         // Find by meaning, role+title, or use ProcessSymbiosis
         let element: UIElementInfo
         do {
-            if let meaning = arguments["meaning"] as? String, !meaning.isEmpty,
-               let app = NSWorkspace.shared.frontmostApplication?.bundleIdentifier,
-               let found = await ProcessSymbiosis.shared.findElement(inApp: app, meaning: meaning) {
-                element = found
+            if let meaning = arguments["meaning"] as? String, !meaning.isEmpty {
+                // Try ProcessSymbiosis first
+                if let app = NSWorkspace.shared.frontmostApplication?.bundleIdentifier,
+                   let found = await ProcessSymbiosis.shared.findElement(inApp: app, meaning: meaning) {
+                    element = found
+                } else {
+                    // Semantic search failed — try to find by scanning for input fields if meaning suggests text input
+                    let isInputMeaning = ["input", "text", "field", "type", "message", "search", "ask", "chat", "prompt", "write"].contains(where: { meaning.lowercased().contains($0) })
+                    if isInputMeaning {
+                        let elements = try await ax.listElements(inWindow: true, maxDepth: 10)
+                        let inputFields = elements.filter { el in
+                            guard let role = el.role else { return false }
+                            return ["AXTextField", "AXTextArea", "AXComboBox", "AXSearchField"].contains(role)
+                        }
+                        if let firstInput = inputFields.first {
+                            element = firstInput
+                        } else {
+                            // Try focused element as last resort
+                            if let focused = await ax.getFocusedElement() {
+                                element = await ax.getElementInfoPublic(focused)
+                            } else {
+                                return ToolResult("No text input field found. Available elements:\n" + (try await listElements(ax: ax, arguments: arguments)).output, isError: true)
+                            }
+                        }
+                    } else {
+                        return ToolResult("Element not found for meaning: \"\(meaning)\". Try list_elements first, then click with role+title.", isError: true)
+                    }
+                }
             } else if let role = arguments["role"] as? String {
                 let title = arguments["title"] as? String ?? ""
                 element = try await ax.findElement(role: role, title: title, inApp: arguments["app"] as? String)
             } else {
-                return ToolResult("Provide 'meaning' or 'role'+'title' to identify the element to click.", isError: true)
+                // No identifier provided — auto list elements and highlight input fields
+                let elements = try await ax.listElements(inWindow: true, maxDepth: 8)
+                let actionable = elements.filter { el in
+                    guard let role = el.role else { return false }
+                    return ["AXButton", "AXTextField", "AXTextArea", "AXCheckBox", "AXRadioButton",
+                            "AXPopUpButton", "AXComboBox", "AXMenuItem", "AXLink", "AXSlider",
+                            "AXTab", "AXSecureTextField", "AXSearchField"].contains(role)
+                }
+                // Find text input fields specifically
+                let inputFields = actionable.filter { el in
+                    let role = el.role ?? ""
+                    return ["AXTextField", "AXTextArea", "AXSecureTextField", "AXComboBox", "AXSearchField"].contains(role)
+                }
+                var result = ""
+                if !inputFields.isEmpty {
+                    result += "⚡ TEXT INPUT FIELDS (click one of these to type):\n"
+                    for (i, el) in inputFields.enumerated() {
+                        result += "  \(i + 1). \(el.descriptionText)\n"
+                    }
+                    result += "\nTo type in a field: first action:\"click\" role:\"\(inputFields[0].role ?? "AXTextArea")\" title:\"\(inputFields[0].title ?? "")\", then action:\"type_text\" text:\"your message\"\n\n"
+                }
+                result += "All \(actionable.count) clickable elements:\n"
+                for (i, el) in actionable.prefix(25).enumerated() {
+                    result += "\(i + 1). \(el.descriptionText)\n"
+                }
+                result += "\nIMPORTANT: Use action:\"click\" with role+title from the list above. Do NOT use click_at — coordinates are unreliable."
+                return ToolResult(result)
             }
         } catch {
             return ToolResult("Cannot find element to click: \(error.localizedDescription)", isError: true)
@@ -177,6 +230,17 @@ nonisolated struct UIAutomationTool: Tool, @unchecked Sendable {
             let desc = element.title ?? element.label ?? element.role ?? "element"
             return ToolResult("Clicked: \(desc)")
         } catch {
+            // If AX click fails, try clicking by position
+            if let pos = element.position, let size = element.size {
+                let centerX = pos.x + size.width / 2
+                let centerY = pos.y + size.height / 2
+                do {
+                    try await ax.clickAt(x: centerX, y: centerY)
+                    return ToolResult("Clicked at center of \(element.role ?? "element") (\(Int(centerX)),\(Int(centerY)))")
+                } catch {
+                    return ToolResult("Click failed: \(error.localizedDescription)", isError: true)
+                }
+            }
             return ToolResult("Click failed: \(error.localizedDescription)", isError: true)
         }
     }
@@ -197,11 +261,52 @@ nonisolated struct UIAutomationTool: Tool, @unchecked Sendable {
         guard let text = arguments["text"] as? String, !text.isEmpty else {
             return ToolResult("Missing 'text' to type.", isError: true)
         }
+
+        // Strategy 1: Try to find focused element and set value directly (fastest, most reliable)
+        if let focused = await ax.getFocusedElement() {
+            let isTextField = { () -> Bool in
+                var role: AnyObject?
+                guard AXUIElementCopyAttributeValue(focused, kAXRoleAttribute as CFString, &role) == .success,
+                      let r = role as? String else { return false }
+                return ["AXTextField", "AXTextArea", "AXComboBox", "AXSearchField"].contains(r)
+            }()
+
+            if isTextField {
+                // Get current value and append (some fields need append, not replace)
+                var currentValue: AnyObject?
+                let hasValue = AXUIElementCopyAttributeValue(focused, kAXValueAttribute as CFString, &currentValue) == .success
+                let current = (hasValue ? currentValue as? String : nil) ?? ""
+                let newValue = current + text
+                let result = AXUIElementSetAttributeValue(focused, kAXValueAttribute as CFString, newValue as CFTypeRef)
+                if result == .success {
+                    return ToolResult("Typed \(text.count) characters into focused text field (via AX set value)")
+                }
+                // If AX set value failed, fall through to CGEvent typing
+            }
+        }
+
+        // Strategy 2: CGEvent Unicode typing (works for all characters)
         do {
             try await ax.typeText(text)
-            return ToolResult("Typed \(text.count) characters")
+            return ToolResult("Typed \(text.count) characters (via keyboard simulation)")
         } catch {
-            return ToolResult("Type failed: \(error.localizedDescription)", isError: true)
+            // Strategy 3: Clipboard paste fallback
+            let pasteboard = NSPasteboard.general
+            let oldContents = pasteboard.string(forType: .string)
+            pasteboard.clearContents()
+            pasteboard.setString(text, forType: .string)
+            do {
+                try await ax.pressKey(key: "v", modifiers: .maskCommand)
+                // Restore old clipboard after small delay
+                try? await Task.sleep(for: .milliseconds(200))
+                if let old = oldContents {
+                    pasteboard.clearContents()
+                    pasteboard.setString(old, forType: .string)
+                }
+                return ToolResult("Typed \(text.count) characters (via clipboard paste)")
+            } catch {
+                return ToolResult("All typing methods failed: \(error.localizedDescription)", isError: true)
+            }
         }
     }
 

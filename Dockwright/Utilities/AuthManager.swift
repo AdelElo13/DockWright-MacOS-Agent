@@ -276,14 +276,19 @@ final class AuthManager: NSObject, @unchecked Sendable {
         _refreshLock.withLock {
             _tokenSyncTimer?.invalidate()
             _tokenSyncTimer = Timer.scheduledTimer(withTimeInterval: tokenSyncInterval, repeats: true) { _ in
-                Self.syncTokenFromKeychain()
+                Task.detached(priority: .utility) { await Self.syncTokenFromKeychainAsync() }
             }
         }
-        Task { @MainActor in Self.syncTokenFromKeychain() }
+        Task.detached(priority: .utility) { await Self.syncTokenFromKeychainAsync() }
     }
 
     static func stopProactiveTokenSync() {
         _refreshLock.withLock { _tokenSyncTimer?.invalidate(); _tokenSyncTimer = nil }
+    }
+
+    /// Async wrapper that runs keychain I/O off the main thread.
+    private static func syncTokenFromKeychainAsync() async {
+        syncTokenFromKeychain()
     }
 
     private static func syncTokenFromKeychain() {
@@ -332,7 +337,7 @@ final class AuthManager: NSObject, @unchecked Sendable {
             return true
         }
         guard shouldRefresh else { return }
-        Task { @MainActor in syncTokenFromKeychain() }
+        Task.detached(priority: .utility) { await syncTokenFromKeychainAsync() }
     }
 
     // MARK: - OAuth Token Refresh

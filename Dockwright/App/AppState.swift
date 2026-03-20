@@ -469,6 +469,7 @@ final class AppState {
         - For code questions: read the source code, don't screenshot
         - For screenshots: use the "screenshot" tool, NOT chrome_cdp screenshot. Chrome CDP is only for Chrome browser automation.
         - Use screen context to understand "this file" or "this page" references
+        - For UI automation (clicking, typing in other apps): use ui_automation tool DIRECTLY. NEVER take a screenshot or use the vision tool during UI automation — screenshots consume 300K+ tokens and will exhaust your budget. Workflow: 1) app_launcher action:"open" to activate the app, 2) ui_automation action:"click" meaning:"text input field" to focus the input (this auto-scans for AXTextArea/AXTextField), 3) ui_automation action:"type_text" text:"your message" (auto-tries: AX set value → Unicode keyboard → clipboard paste), 4) ui_automation action:"press_key" key:"return". Skip list_elements unless click fails. The click with meaning auto-finds text fields even in Electron apps (ChatGPT, VS Code, etc.).
 
         Shopping & checkout:
         - When the user asks you to buy/order something, DO IT. Open the website, find the product, add to cart, go to checkout.
@@ -710,9 +711,10 @@ final class AppState {
             if custom > 0 { return custom }
             // Auto-detect based on model — use 80% of context window as budget
             let model = selectedModel.lowercased()
-            if model.contains("opus") || model.contains("gemini") { return 800_000 }  // 1M context
-            if model.contains("sonnet") { return 160_000 }  // 200K context
-            if model.contains("haiku") { return 160_000 }   // 200K context
+            if model.contains("opus") { return 900_000 }    // 1M context
+            if model.contains("gemini") { return 800_000 }   // 1M context
+            if model.contains("sonnet") { return 190_000 }   // 200K context
+            if model.contains("haiku") { return 190_000 }    // 200K context
             if model.contains("gpt-5") || model.contains("o3") || model.contains("o4") { return 200_000 }  // 256K context
             if model.contains("gpt-4") { return 100_000 }   // 128K context
             if model.contains("deepseek") { return 100_000 } // 128K context

@@ -27,6 +27,10 @@ final class WhatsAppBotService {
     private var activeTasks: [String: Task<Void, Never>] = [:]
     private var lastUserTextPerSender: [String: String] = [:]
 
+    // Per-sender LLM conversation history
+    private var chatConversations: [String: [LLMMessage]] = [:]
+    private let maxConversationMessages = 20
+
     // Webhook listener
     private var listener: NWListener?
 
@@ -383,7 +387,14 @@ final class WhatsAppBotService {
 
         var userMsg = LLMMessage.user(text)
         if let imgs = images, !imgs.isEmpty { userMsg.images = imgs }
-        var llmMessages: [LLMMessage] = [userMsg]
+
+        // Load conversation history for this sender
+        var history = chatConversations[from] ?? []
+        history.append(userMsg)
+        if history.count > maxConversationMessages {
+            history = Array(history.suffix(maxConversationMessages))
+        }
+        var llmMessages: [LLMMessage] = history
         let llm = LLMService()
         let toolDefs = ToolRegistry.shared.anthropicToolDefinitions()
         let toolExecutor = ToolExecutor()
@@ -428,6 +439,13 @@ final class WhatsAppBotService {
             await sendFinalResponse(to: from, text: finalText)
 
             logger.info("WhatsApp: Completed for \(from) in \(duration)s")
+            // Save conversation history
+            history.append(LLMMessage.assistant(finalText))
+            if history.count > maxConversationMessages {
+                history = Array(history.suffix(maxConversationMessages))
+            }
+            chatConversations[from] = history
+
             onChatMessage?(from, text, finalText)
 
         } catch {

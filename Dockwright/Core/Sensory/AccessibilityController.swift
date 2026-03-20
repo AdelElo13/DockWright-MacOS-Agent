@@ -70,7 +70,7 @@ actor AccessibilityController {
     }
 
     /// List all visible UI elements in the focused window.
-    func listElements(inWindow: Bool = true, maxDepth: Int = 5) async throws -> [UIElementInfo] {
+    func listElements(inWindow: Bool = true, maxDepth: Int = 10) async throws -> [UIElementInfo] {
         guard checkPermission() else { throw AXControllerError.permissionDenied }
         let root: AXUIElement = inWindow ? try getFocusedWindow() : try getFocusedApp()
         var elements: [UIElementInfo] = []
@@ -141,17 +141,19 @@ actor AccessibilityController {
         axLog.info("Pressed key: \(key, privacy: .public)")
     }
 
-    /// Type a full string character by character.
+    /// Type a full string using Unicode CGEvent injection.
+    /// Handles ALL characters: uppercase, special chars (?!@#), Unicode (émojis, accents), etc.
     func typeText(_ text: String) throws {
         guard checkPermission() else { throw AXControllerError.permissionDenied }
         for char in text {
-            let str = String(char)
-            guard let keyCode = KeyCodeMapper.keyCode(for: str) else { continue }
-            guard let down = CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: true),
-                  let up = CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: false) else { continue }
+            let utf16 = Array(String(char).utf16)
+            guard let down = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: true),
+                  let up = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: false) else { continue }
+            down.keyboardSetUnicodeString(stringLength: utf16.count, unicodeString: utf16)
+            up.keyboardSetUnicodeString(stringLength: utf16.count, unicodeString: utf16)
             down.post(tap: .cghidEventTap)
             up.post(tap: .cghidEventTap)
-            usleep(20_000) // 20ms between keystrokes
+            usleep(15_000) // 15ms between keystrokes
         }
     }
 
@@ -183,12 +185,19 @@ actor AccessibilityController {
         return CGRect(origin: position, size: size)
     }
 
+    /// Public wrapper for getElementInfo.
+    func getElementInfoPublic(_ element: AXUIElement) -> UIElementInfo {
+        return getElementInfo(element)
+    }
+
     // MARK: - Private Traversal
 
     private func searchRecursive(element: AXUIElement, role: String, title: String, matches: inout [UIElementInfo], depth: Int, maxDepth: Int) {
         guard depth < maxDepth else { return }
         let info = getElementInfo(element)
-        if info.role == role && (info.title?.localizedCaseInsensitiveContains(title) == true || info.label?.localizedCaseInsensitiveContains(title) == true) {
+        let roleMatches = info.role == role
+        let titleMatches = title.isEmpty || info.title?.localizedCaseInsensitiveContains(title) == true || info.label?.localizedCaseInsensitiveContains(title) == true
+        if roleMatches && titleMatches {
             matches.append(info)
         }
         guard let children = info.children else { return }

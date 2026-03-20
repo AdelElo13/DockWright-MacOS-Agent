@@ -101,6 +101,10 @@ final class TelegramBotService {
     private var messageHistory: [(timestamp: Date, from: String, text: String)] = []
     private let maxMessageHistory = 20
 
+    // Per-chat LLM conversation history (keeps context between messages)
+    private var chatConversations: [String: [LLMMessage]] = [:]
+    private let maxConversationMessages = 20
+
     // Uptime
     private var startupTime = Date()
 
@@ -495,9 +499,10 @@ final class TelegramBotService {
                 _ = await sendMessage(chatId: chatId, text: "No active task to stop.")
             }
 
-        case "/clear":
+        case "/clear", "/new":
             messageHistory.removeAll()
-            _ = await sendMessage(chatId: chatId, text: "🗑 Message history cleared.")
+            chatConversations[chatId] = []
+            _ = await sendMessage(chatId: chatId, text: "🗑 New conversation started.")
 
         case "/model":
             let model = AppPreferences.shared.selectedModel
@@ -689,13 +694,23 @@ final class TelegramBotService {
             return
         }
 
-        // Build messages
+        // Build messages with conversation history
         let systemPrompt = buildSystemPrompt()
         var userMsg = LLMMessage.user(text)
         if let imgs = images, !imgs.isEmpty {
             userMsg.images = imgs
         }
-        var llmMessages: [LLMMessage] = [userMsg]
+
+        // Load existing conversation for this chat
+        var history = chatConversations[chatId] ?? []
+        history.append(userMsg)
+
+        // Trim to max conversation length (keep recent messages)
+        if history.count > maxConversationMessages {
+            history = Array(history.suffix(maxConversationMessages))
+        }
+
+        var llmMessages: [LLMMessage] = history
         let llm = LLMService()
         let toolDefs = ToolRegistry.shared.anthropicToolDefinitions()
         let toolExecutor = ToolExecutor()
@@ -804,6 +819,13 @@ final class TelegramBotService {
                      TGInlineButton(text: "📊 Status", callbackData: "cmd_status")]
                 ])
             }
+
+            // Save conversation history (user + assistant, skip tool messages)
+            history.append(.assistant(responseText))
+            if history.count > maxConversationMessages {
+                history = Array(history.suffix(maxConversationMessages))
+            }
+            chatConversations[chatId] = history
 
             onChatMessage?(chatId, text, responseText)
 
