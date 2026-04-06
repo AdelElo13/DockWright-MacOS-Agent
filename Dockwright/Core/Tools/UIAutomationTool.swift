@@ -182,7 +182,7 @@ nonisolated struct UIAutomationTool: Tool, @unchecked Sendable {
                             if let focused = await ax.getFocusedElement() {
                                 element = await ax.getElementInfoPublic(focused)
                             } else {
-                                return ToolResult("No text input field found. Available elements:\n" + (try await listElements(ax: ax, arguments: arguments)).output, isError: true)
+                                return ToolResult("No text input field found. Available elements:\n" + (await listElements(ax: ax, arguments: arguments)).output, isError: true)
                             }
                         }
                     } else {
